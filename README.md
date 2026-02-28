@@ -17,8 +17,8 @@
 1. 从 [Releases](https://github.com/jerryyang1208/FFmpeg7-SDL2_Practice/releases) 下载库文件包
 
 2. 解压到项目根目录，确保目录结构如下：
+<pre>
 ffmpeg+SDL2/
-│
 ├── .vscode/                      # VS Code 配置文件
 │   ├── c_cpp_properties.json     # C/C++ 插件配置
 │   ├── launch.json               # 调试配置
@@ -44,6 +44,7 @@ ffmpeg+SDL2/
 ├── swresample-5.dll              # FFmpeg 音频重采样库
 ├── swscale-8.dll                 # FFmpeg 图像缩放库
 └── SDL2.dll                      # SDL2 动态链接库
+</pre>
 
 3. 确保DLL文件在可执行文件同一目录或系统 PATH 中，运行时必需这些动态链接库文件
 
