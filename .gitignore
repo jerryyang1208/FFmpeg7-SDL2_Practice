@@ -1,0 +1,22 @@
+# 忽略编译生成的执行文件
+*.exe
+*.pdb
+*.obj
+*.o
+
+# 忽略 FFmpeg 和 SDL 的原始库文件夹
+FFmpeg-n7.0.2-3-win64-lgpl-shared-7.0/
+SDL2-2.30.6/
+
+# 忽略根目录下的 DLL 文件
+*.dll
+
+# 不要忽略源代码文件！
+# 不要写 *.* 这种通配符
+
+# 保留 VS Code 配置
+!.vscode/
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/c_cpp_properties.json
+!.vscode/settings.json
