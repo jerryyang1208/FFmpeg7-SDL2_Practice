@@ -5,14 +5,14 @@
 #include <iomanip>
 
 extern "C" {
-#include <libavformat/avformat.h>
-#include <libavcodec/avcodec.h>
-#include <libswresample/swresample.h>
-#include <libavutil/avutil.h>
-#include <libavutil/channel_layout.h>
-#include <libavutil/log.h>
-#include <libavutil/time.h>
-#include <SDL.h>
+	#include <libavformat/avformat.h>
+	#include <libavcodec/avcodec.h>
+	#include <libswresample/swresample.h>
+	#include <libavutil/avutil.h>
+	#include <libavutil/channel_layout.h>
+	#include <libavutil/log.h>
+	#include <libavutil/time.h>
+	#include <SDL.h>
 }
 
 // 解决路径中文乱码：ANSI 转换为 UTF-8 供 FFmpeg 使用

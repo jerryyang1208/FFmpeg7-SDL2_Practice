@@ -82,7 +82,7 @@ ffmpeg+SDL2/
 **Technical Highlights**:
 - Uses FFmpeg to decode various audio formats
 - Uses Swresample for audio format conversion
-- Uses SDL audio device for playback
+- Uses SDL audio device for playback, using SDL_QueueAudio
 
 ---
 
