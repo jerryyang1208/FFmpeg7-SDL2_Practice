@@ -9,6 +9,7 @@
 ![Platform](https://img.shields.io/badge/Platform-Windows-lightgrey)
 
 基于 FFmpeg 7.0.2 和 SDL2 2.30.6 的多媒体播放器实践项目，包含音频播放、PCM 播放、视频播放和 SDL 图形绘制四个独立示例。
+
 博客：https://zhuanlan.zhihu.com/p/700478133
 
 ## 📦 依赖库
@@ -36,8 +37,8 @@ ffmpeg+SDL2/
 ├── README.md                     # 项目说明文档
 │
 ├── AudioPlayer.cpp               # 音频播放器源代码
-├── PCM_AudioPlayer.cpp           # PCM音频播放器源代码
-├── SDL_Pics.cpp                  # SDL图形绘制源代码
+├── PCM_AudioPlayer.cpp           # PCM 音频播放器源代码
+├── SDL_Pics.cpp                  # SDL 图形绘制源代码
 ├── VideoPlayer.cpp               # 视频播放器源代码
 │
 ├── avcodec-61.dll                # FFmpeg 编解码库

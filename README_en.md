@@ -9,6 +9,7 @@
 ![Platform](https://img.shields.io/badge/Platform-Windows-lightgrey)
 
 A multimedia player practice project based on FFmpeg 7.0.2 and SDL2 2.30.6, featuring four independent examples: audio playback, PCM playback, video playback, and SDL graphics rendering.
+
 Blog: https://zhuanlan.zhihu.com/p/700478133
 
 ## 📦 Dependencies
