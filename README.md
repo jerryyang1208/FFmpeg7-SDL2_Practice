@@ -1,3 +1,7 @@
+<div align="right">
+  <a href="README_en.md">English</a>
+</div>
+
 # FFmpeg7-SDL2 多媒体实践项目
 
 ![FFmpeg](https://img.shields.io/badge/FFmpeg-7.0.2-green)
