@@ -18,7 +18,7 @@ Blog: https://zhuanlan.zhihu.com/p/700478133
 ## 🚀 Quick Start
 
 ### Environment Setup
-1. Download the library package from [Releases](https://github.com/jerryyang1208/FFmpeg7-SDL2_Practice/releases)
+1. Download the necessary library package from [Releases](https://github.com/jerryyang1208/FFmpeg7-SDL2_Practice/releases)
 
 2. Extract to the project root directory, ensuring the directory structure is as follows:
 <pre>
@@ -53,14 +53,14 @@ ffmpeg+SDL2/
 3. Ensure DLL files are in the same directory as the executables or in the system PATH. These dynamic link library files are required at runtime.
 
 ### Compilation Environment
-- **Compiler**: MSVC (Visual Studio) or MinGW
+- **Compiler**: MSVC (Visual Studio) or MinGW (VS Code)
 - **Standard**: C++11/14
 - **Include Directories**: Add FFmpeg and SDL2 include paths
 - **Library Directories**: Add FFmpeg and SDL2 lib paths
 - **Link Libraries**: 
   - FFmpeg: avformat, avcodec, avutil, swresample, swscale
   - SDL2: SDL2
-  - Windows: comdlg32 (for file dialog)
+  - Windows: comdlg32 (for file dialog and choose local files)
 
 ## 📁 Project File Description
 

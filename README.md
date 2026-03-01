@@ -8,7 +8,7 @@
 ![SDL2](https://img.shields.io/badge/SDL2-2.30.6-blue)
 ![Platform](https://img.shields.io/badge/Platform-Windows-lightgrey)
 
-基于 FFmpeg 7.0.2 和 SDL2 2.30.6 的多媒体播放器实践项目，包含音频播放、PCM播放、视频播放和SDL图形绘制四个独立示例。
+基于 FFmpeg 7.0.2 和 SDL2 2.30.6 的多媒体播放器实践项目，包含音频播放、PCM 播放、视频播放和 SDL 图形绘制四个独立示例。
 博客：https://zhuanlan.zhihu.com/p/700478133
 
 ## 📦 依赖库
@@ -18,7 +18,7 @@
 ## 🚀 快速开始
 
 ### 环境配置
-1. 从 [Releases](https://github.com/jerryyang1208/FFmpeg7-SDL2_Practice/releases) 下载库文件包
+1. 从 [Releases](https://github.com/jerryyang1208/FFmpeg7-SDL2_Practice/releases) 下载必需的库文件包
 
 2. 解压到项目根目录，确保目录结构如下：
 <pre>
@@ -50,26 +50,26 @@ ffmpeg+SDL2/
 └── SDL2.dll                      # SDL2 动态链接库
 </pre>
 
-3. 确保DLL文件在可执行文件同一目录或系统 PATH 中，运行时必需这些动态链接库文件
+3. 确保 DLL 文件在可执行文件同一目录或系统 PATH 中，运行时必需这些动态链接库文件
 
 ### 编译环境
-- **编译器**: MSVC (Visual Studio) 或 MinGW
+- **编译器**: MSVC (Visual Studio) 或 MinGW（VS Code）
 - **标准**: C++11/14
-- **包含目录**: 需添加FFmpeg和SDL2的include路径
-- **库目录**: 需添加FFmpeg和SDL2的lib路径
+- **包含目录**: 需添加 FFmpeg 和 SDL2 的 include 路径
+- **库目录**: 需添加 FFmpeg 和 SDL2 的 lib 路径
 - **链接库**: 
 - FFmpeg: avformat, avcodec, avutil, swresample, swscale
 - SDL2: SDL2
-- Windows: comdlg32 (用于文件对话框)
+- Windows: comdlg32 (用于运行后呼出文件对话框，自选本地文件)
 
 ## 📁 项目文件说明
 
 ### 1. 🎵 AudioPlayer.cpp - 通用音频播放器
-**功能**: 支持多种格式的音频文件播放（MP3, FLAC, Opus, WAV, M4A, OGG, AAC等）
+**功能**: 支持多种格式的音频文件播放（如 MP3, FLAC, Opus, WAV, M4A, OGG, AAC 等）
 
 **核心特性**:
 - 支持中文路径文件选择
-- 自动音频重采样（统一输出16位立体声）
+- 自动音频重采样（统一输出 16 位立体声）
 - 实时播放进度显示
 - 显示音频元数据（标题、艺术家、专辑、采样率等）
 
@@ -86,27 +86,27 @@ ffmpeg+SDL2/
 
 ---
 
-### 2. 🎛️ PCM_AudioPlayer.cpp - PCM原始音频播放器
-**功能**: 播放原始PCM音频文件（44.1kHz, 16位, 双声道）
+### 2. 🎛️ PCM_AudioPlayer.cpp - PCM 原始音频播放器
+**功能**: 播放原始 PCM 音频文件（44.1kHz, 16 位, 双声道）
 
 **核心特性**:
-- 直接读取PCM文件到内存
-- 使用SDL队列音频数据
+- 直接读取 PCM 文件到内存
+- 使用 SDL 队列音频数据
 - 简单的文件选择界面
 
 **使用方法**:
-1. 运行程序，选择.pcm文件
-2. 程序自动播放（注意：PCM文件必须是44.1kHz/16位/立体声格式）
+1. 运行程序，选择 .pcm 文件
+2. 程序自动播放（注意：PCM 文件必须是 44.1kHz / 16 位 / 立体声格式）
 3. 播放完成后自动退出
 
 **注意事项**:
-- ⚠️ 仅支持固定参数：44.1kHz采样率、16位深度、双声道
+- ⚠️ 仅支持固定参数：44.1kHz 采样率、16 位深度、双声道
 - 如果PCM文件参数不匹配，会导致播放速度异常或噪音
 
 ---
 
-### 3. 🖼️ SDL_Pics.cpp - SDL2图形绘制示例
-**功能**: 展示SDL2的基本绘图功能
+### 3. 🖼️ SDL_Pics.cpp - SDL2 图形绘制示例
+**功能**: 展示 SDL2 的基本绘图功能
 
 **核心特性**:
 - 创建无边框窗口
@@ -115,14 +115,14 @@ ffmpeg+SDL2/
 - 红色背景
 
 **使用方法**:
-1. 运行程序，显示SDL图形窗口
-2. 窗口显示5秒后自动关闭
+1. 运行程序，显示 SDL 图形窗口
+2. 窗口显示 5 秒后自动关闭
 
 **显示效果**:
 - 背景：红色
-- 蓝色大矩形：位置(50,50)，大小300x200
+- 蓝色大矩形：位置 (50,50)，大小 300x200
 - 白色三角形：由四个点构成的闭合线条
-- 青色小矩形：位置(400,300)，大小100x100
+- 青色小矩形：位置 (400,300)，大小 100x100
 
 ---
 
@@ -133,7 +133,7 @@ ffmpeg+SDL2/
 - 支持中文路径文件选择
 - 自动音视频同步
 - 可调整窗口大小（画面自动拉伸）
-- YUV420P格式渲染（确保兼容性）
+- YUV420P 格式渲染（确保兼容性）
 
 **使用方法**:
 1. 运行程序，选择视频文件
@@ -142,31 +142,31 @@ ffmpeg+SDL2/
 
 **技术要点**:
 - 使用 FFmpeg 解码视频帧
-- 使用 Swscale 将各种像素格式转换为YUV420P
+- 使用 Swscale 将各种像素格式转换为 YUV420P
 - 使用 SDL 纹理渲染视频
-- 基于PTS（显示时间戳）的音视频同步
+- 基于 PTS（显示时间戳）的音视频同步
 
 ## ⚙️ VS Code 配置说明
 
 项目包含`.vscode`配置文件夹：
-- `c_cpp_properties.json` - C/C++插件配置（包含库路径）
+- `c_cpp_properties.json` - C/C++ 插件配置（包含库路径）
 - `launch.json` - 调试配置
 - `settings.json` - 编辑器设置
 - `tasks.json` - 构建任务配置
 
 ## 🔧 常见问题
 
-### Q1: 编译时找不到FFmpeg/SDL2头文件
-**A**: 检查`.vscode/c_cpp_properties.json`中的include路径是否正确
+### Q1: 编译时找不到 FFmpeg/SDL2 头文件
+**A**: 检查`.vscode/c_cpp_properties.json`中的 include 路径是否正确
 
 ### Q2: 运行时提示缺少DLL
-**A**: 确保所有DLL文件在可执行文件同一目录，或已添加到系统PATH
+**A**: 确保所有 DLL 文件在可执行文件同一目录，或已添加到系统 PATH
 
 ### Q3: PCM播放速度不对或有噪音
-**A**: PCM_AudioPlayer.cpp只支持44.1kHz/16位/立体声格式，请检查PCM文件参数
+**A**: PCM_AudioPlayer.cpp只支持 44.1kHz / 16 位 / 立体声格式，请检查 PCM 文件参数
 
 ### Q4: 音频文件无法播放
-**A**: AudioPlayer.cpp支持主流格式，但某些特殊编码的文件可能需要额外的解码器
+**A**: AudioPlayer.cpp 支持主流格式，但某些特殊编码的文件可能需要额外的解码器
 
 ## 📝 更新日志
 
@@ -177,7 +177,7 @@ ffmpeg+SDL2/
 
 ## 📄 许可证
 
-本项目仅供学习交流使用，FFmpeg和SDL2遵循其各自的开源许可证。
+本项目仅供学习交流使用，FFmpeg 和 SDL2 遵循其各自的开源许可证。
 
 ## 👤 作者
 
