@@ -433,6 +433,7 @@ int main(int argc, char* argv[]) {
     // 8. 主循环（处理事件和视频渲染）
     SDL_Event event;
     bool running = true;
+    int64_t last_progress_update = 0; // 上次进度条更新时间（微秒）
 
     while (running) {
         while (SDL_PollEvent(&event)) {
@@ -473,28 +474,36 @@ int main(int argc, char* argv[]) {
                 SDL_RenderCopy(renderer, texture, nullptr, nullptr);
                 SDL_RenderPresent(renderer);
 
-                // 更新进度显示
-                int cur_sec = static_cast<int>(audio_clock);
-                std::cout << "\rProgress: " << cur_sec / 60 << ":"
-                          << std::setfill('0') << std::setw(2) << cur_sec % 60
-                          << " / " << total_duration_sec / 60 << ":"
-                          << std::setfill('0') << std::setw(2) << total_duration_sec % 60
-                          << std::flush;
+                // 每秒更新一次进度显示
+                int64_t now = av_gettime();
+                if (now - last_progress_update > 1000000) {
+                    int cur_sec = static_cast<int>(audio_clock);
+                    std::cout << "\rProgress: " << cur_sec / 60 << ":"
+                              << std::setfill('0') << std::setw(2) << cur_sec % 60
+                              << " / " << total_duration_sec / 60 << ":"
+                              << std::setfill('0') << std::setw(2) << total_duration_sec % 60
+                              << std::flush;
+                    last_progress_update = now;
+                }
 
                 av_frame_free(&vf.frame);
             } else {
                 SDL_Delay(10);
             }
         } else {
-            // 纯音频：只显示进度
+            // 纯音频：每秒更新一次进度
             if (audio_stream_idx != -1) {
                 double audio_clock = get_audio_clock();
-                int cur_sec = static_cast<int>(audio_clock);
-                std::cout << "\rProgress: " << cur_sec / 60 << ":"
-                          << std::setfill('0') << std::setw(2) << cur_sec % 60
-                          << " / " << total_duration_sec / 60 << ":"
-                          << std::setfill('0') << std::setw(2) << total_duration_sec % 60
-                          << std::flush;
+                int64_t now = av_gettime();
+                if (now - last_progress_update > 1000000) {
+                    int cur_sec = static_cast<int>(audio_clock);
+                    std::cout << "\rProgress: " << cur_sec / 60 << ":"
+                              << std::setfill('0') << std::setw(2) << cur_sec % 60
+                              << " / " << total_duration_sec / 60 << ":"
+                              << std::setfill('0') << std::setw(2) << total_duration_sec % 60
+                              << std::flush;
+                    last_progress_update = now;
+                }
                 SDL_Delay(100);
             }
         }

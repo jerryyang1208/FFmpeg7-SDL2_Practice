@@ -2,49 +2,62 @@
 extern "C" {
     #include <SDL.h>
 }
-#define POINTS_COUNT 4
 
-// 四个点构成的线条（白色三角形）
-SDL_Point points[POINTS_COUNT] = {
+// 窗口尺寸
+const int WINDOW_WIDTH = 640;
+const int WINDOW_HEIGHT = 480;
+
+// 定义要绘制的图形（使用常量，避免全局变量）
+const SDL_Rect bigRect = {50, 50, 300, 200};      // 蓝色大矩形
+const SDL_Rect smallRect = {400, 300, 100, 100};  // 青色小矩形
+const SDL_Point trianglePoints[4] = {             // 白色三角形（闭合线条）
     {320, 200},
     {300, 240},
     {340, 240},
     {320, 200}
 };
-
-// 蓝色大矩形
-SDL_Rect bigRect = {50, 50, 300, 200};
-
-// 青色小矩形
-SDL_Rect smallRect = {400, 300, 100, 100};
+const int pointCount = 4;
 
 // 初始化 SDL 窗口和渲染器
-bool initSDL(SDL_Window** window, SDL_Renderer** renderer) {
+bool initSDL(SDL_Window*& window, SDL_Renderer*& renderer) {
     if (SDL_Init(SDL_INIT_VIDEO) < 0) {
-        std::cout << "SDL could not initialize! SDL_Error: " << SDL_GetError() << std::endl;
-        return false;
-    }
-    
-    *window = SDL_CreateWindow("SDL2 Example",  // 通过二级指针修改调用者的window指针
-                               SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
-                               640, 480, SDL_WINDOW_SHOWN | SDL_WINDOW_BORDERLESS);
-    if (*window == nullptr) {
-        std::cout << "Window could not be created! SDL_Error: " << SDL_GetError() << std::endl;
+        std::cerr << "SDL 初始化失败: " << SDL_GetError() << std::endl;
         return false;
     }
 
-    *renderer = SDL_CreateRenderer(*window, -1, SDL_RENDERER_ACCELERATED);
-    if (*renderer == nullptr) {
-        std::cout << "Renderer could not be created! SDL_Error: " << SDL_GetError() << std::endl;
+    window = SDL_CreateWindow("SDL2 绘图示例",
+                              SDL_WINDOWPOS_CENTERED,
+                              SDL_WINDOWPOS_CENTERED,
+                              WINDOW_WIDTH,
+                              WINDOW_HEIGHT,
+                              SDL_WINDOW_SHOWN);
+    if (!window) {
+        std::cerr << "窗口创建失败: " << SDL_GetError() << std::endl;
+        SDL_Quit();
+        return false;
+    }
+
+    renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
+    if (!renderer) {
+        std::cerr << "渲染器创建失败: " << SDL_GetError() << std::endl;
+        SDL_DestroyWindow(window);
+        SDL_Quit();
         return false;
     }
 
     return true;
 }
 
-// 渲染所有图形
+// 清理资源
+void cleanup(SDL_Window* window, SDL_Renderer* renderer) {
+    if (renderer) SDL_DestroyRenderer(renderer);
+    if (window) SDL_DestroyWindow(window);
+    SDL_Quit();
+}
+
+// 绘制所有图形
 void render(SDL_Renderer* renderer) {
-    // 背景颜色: 红色
+    // 清空屏幕为红色背景
     SDL_SetRenderDrawColor(renderer, 255, 0, 0, 255);
     SDL_RenderClear(renderer);
 
@@ -52,33 +65,45 @@ void render(SDL_Renderer* renderer) {
     SDL_SetRenderDrawColor(renderer, 0, 0, 255, 255);
     SDL_RenderFillRect(renderer, &bigRect);
 
-    // 绘制白色三角形
+    // 绘制白色三角形（线条）
     SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
-    SDL_RenderDrawLines(renderer, points, POINTS_COUNT);
+    SDL_RenderDrawLines(renderer, trianglePoints, pointCount);
 
     // 绘制青色小矩形
     SDL_SetRenderDrawColor(renderer, 0, 255, 255, 255);
     SDL_RenderFillRect(renderer, &smallRect);
 
-    SDL_RenderPresent(renderer);  // 显示图像
+    // 更新屏幕显示
+    SDL_RenderPresent(renderer);
 }
 
 int main(int argc, char* argv[]) {
     SDL_Window* window = nullptr;
     SDL_Renderer* renderer = nullptr;
 
-    if (!initSDL(&window, &renderer)) { // 传入二级指针，initSDL 内部修改指针指向
-        return 1; // 初始化失败
+    if (!initSDL(window, renderer)) {
+        return 1;
     }
 
-    render(renderer);
+    // 主循环标志
+    bool running = true;
+    SDL_Event event;
 
-    SDL_Delay(5000);  // 显示 5 秒
+    while (running) {
+        // 处理事件队列
+        while (SDL_PollEvent(&event)) {
+            if (event.type == SDL_QUIT) {
+                running = false;  // 点击窗口关闭按钮时退出循环
+            }
+        }
 
-    // 清理资源
-    SDL_DestroyRenderer(renderer);
-    SDL_DestroyWindow(window);
-    SDL_Quit();
+        // 渲染画面（由于图形不变，可以每帧重绘；若想节省CPU可加入延时）
+        render(renderer);
 
+        // 简单的帧率控制（防止CPU占用过高）
+        SDL_Delay(16);  // 约60 FPS
+    }
+
+    cleanup(window, renderer);
     return 0;
 }
