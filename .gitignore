@@ -11,10 +11,13 @@ SDL2-2.30.6/
 # 忽略根目录下的 DLL 文件
 *.dll
 
+# 如果程序运行时生成日志
+*.log
+
 # 不要忽略源代码文件！
 # 不要写 *.* 这种通配符
 
-# 保留 VS Code 配置
+# 保留 VS Code 配置，其他人可以直接使用相同的编译调试配置，仅需修改各文件路径
 !.vscode/
 !.vscode/tasks.json
 !.vscode/launch.json
