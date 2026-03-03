@@ -373,7 +373,7 @@ int main(int argc, char* argv[]) {
                                  SWS_BILINEAR, nullptr, nullptr, nullptr);
     }
 
-    // 5. 初始化SDL - 根据是否有有效视频流决定是否初始化视频子系统
+    // 5. 初始化 SDL - 根据是否有有效视频流决定是否初始化视频子系统
     Uint32 sdl_init_flags = SDL_INIT_AUDIO | SDL_INIT_TIMER;
     if (video_stream_idx != -1) {
         sdl_init_flags |= SDL_INIT_VIDEO;
@@ -401,7 +401,7 @@ int main(int argc, char* argv[]) {
         desired.format = AUDIO_S16SYS;
         desired.channels = audio_channels;
         desired.samples = 1024;
-        desired.callback = nullptr;          // 不使用回调，改用SDL_QueueAudio
+        desired.callback = nullptr;          // 不使用回调，改用 SDL_QueueAudio
         desired.userdata = nullptr;
 
         audio_dev = SDL_OpenAudioDevice(nullptr, 0, &desired, &obtained, 0);
@@ -499,7 +499,7 @@ int main(int argc, char* argv[]) {
             }
         }
 
-        // 检查是否播放结束：视频队列空且音频队列空且SDL内部队列空
+        // 检查是否播放结束：视频队列空且音频队列空且 SDL 内部队列空
         if (video_frame_queue.empty() && audio_packet_queue.empty()) {
             if (audio_stream_idx != -1) {
                 // 如果还有音频数据在SDL内部队列中，等待播放完
@@ -524,7 +524,7 @@ int main(int argc, char* argv[]) {
     if (audio_dec_thread.joinable()) audio_dec_thread.join();
     if (video_dec_thread.joinable()) video_dec_thread.join();
 
-    // 释放SDL资源
+    // 释放 SDL 资源
     if (audio_dev != 0) {
         SDL_CloseAudioDevice(audio_dev);
     }
@@ -532,7 +532,7 @@ int main(int argc, char* argv[]) {
     if (renderer) SDL_DestroyRenderer(renderer);
     if (window) SDL_DestroyWindow(window);
 
-    // 释放FFmpeg资源
+    // 释放 FFmpeg 资源
     if (swr_ctx) swr_free(&swr_ctx);
     if (sws_ctx) sws_freeContext(sws_ctx);
     if (audio_codec_ctx) avcodec_free_context(&audio_codec_ctx);
