@@ -237,8 +237,8 @@ void audio_decoder_thread_func() {
                                                (const uint8_t**)frame->data, frame->nb_samples);
                 if (out_samples > 0) {
                     int bytes = out_samples * 4; // S16立体声 2ch * 2bytes = 4字节/立体声样本
-                    // 控制SDL队列大小，避免占用过多内存（例如保持不超过0.5秒数据）
-                    const int max_queued_bytes = audio_samplerate * 4 * 0.5; // 0.5秒的字节数
+                    // 控制SDL队列大小，避免占用过多内存（保持不超过1秒数据，原为0.5秒）
+                    const int max_queued_bytes = audio_samplerate * 4 * 1.0; // 1.0秒的字节数
                     while (!quit && SDL_GetQueuedAudioSize(audio_dev) > max_queued_bytes) {
                         SDL_Delay(10);
                     }
@@ -258,7 +258,7 @@ void audio_decoder_thread_func() {
 }
 
 // ------------------------------------------------------------
-// 视频解码线程
+// 视频解码线程（优化版：避免不必要的格式转换）
 // ------------------------------------------------------------
 void video_decoder_thread_func() {
     AVPacket* pkt = nullptr;
@@ -269,23 +269,27 @@ void video_decoder_thread_func() {
 
         if (avcodec_send_packet(video_codec_ctx, pkt) == 0) {
             while (avcodec_receive_frame(video_codec_ctx, frame) == 0) {
-                // 创建新的 YUV 帧
-                AVFrame* yuv_frame = av_frame_alloc();
-                yuv_frame->format = video_out_fmt;
-                yuv_frame->width = video_width;
-                yuv_frame->height = video_height;
-
-                if (av_frame_get_buffer(yuv_frame, 0) < 0) {
-                    av_frame_free(&yuv_frame);
-                    continue;
+                AVFrame* out_frame = nullptr;
+                // 如果解码器输出的格式已经是 YUV420P，直接使用，避免格式转换和内存拷贝
+                if (frame->format == AV_PIX_FMT_YUV420P) {
+                    out_frame = av_frame_clone(frame); // 增加引用，不复制数据
+                } else {
+                    // 否则进行格式转换
+                    out_frame = av_frame_alloc();
+                    out_frame->format = video_out_fmt;
+                    out_frame->width = video_width;
+                    out_frame->height = video_height;
+                    if (av_frame_get_buffer(out_frame, 0) < 0) {
+                        av_frame_free(&out_frame);
+                        continue;
+                    }
+                    sws_scale(sws_ctx,
+                              frame->data, frame->linesize, 0, video_height,
+                              out_frame->data, out_frame->linesize);
                 }
 
-                sws_scale(sws_ctx,
-                          frame->data, frame->linesize, 0, video_height,
-                          yuv_frame->data, yuv_frame->linesize);
-
                 double pts = frame->best_effort_timestamp * av_q2d(video_stream->time_base);
-                video_frame_queue.push({yuv_frame, pts});
+                video_frame_queue.push({out_frame, pts});
             }
         }
         av_packet_free(&pkt);
@@ -362,12 +366,18 @@ int main(int argc, char* argv[]) {
         const AVCodec* video_codec = avcodec_find_decoder(video_stream->codecpar->codec_id);
         video_codec_ctx = avcodec_alloc_context3(video_codec);
         avcodec_parameters_to_context(video_codec_ctx, video_stream->codecpar);
+
+        // 开启多线程解码（使用 CPU 核心数）
+        video_codec_ctx->thread_count = std::thread::hardware_concurrency();
+        // 设置解码线程类型（帧级并行）
+        video_codec_ctx->thread_type = FF_THREAD_FRAME;   // 或 FF_THREAD_SLICE
+
         if (avcodec_open2(video_codec_ctx, video_codec, nullptr) < 0) return -1;
 
         video_width = video_codec_ctx->width;
         video_height = video_codec_ctx->height;
 
-        // 初始化图像转换
+        // 初始化图像转换（仅当需要转换格式时使用，但已优化可避免）
         sws_ctx = sws_getContext(video_width, video_height, video_codec_ctx->pix_fmt,
                                  video_width, video_height, video_out_fmt,
                                  SWS_BILINEAR, nullptr, nullptr, nullptr);
@@ -453,7 +463,7 @@ int main(int argc, char* argv[]) {
                 double diff = vf.pts - audio_clock;
 
                 const double sync_threshold = 0.1;   // 100ms
-                const double drop_threshold = -0.3;  // 落后300ms丢弃
+                const double drop_threshold = -0.5;  // 落后500ms丢弃（原为-0.3）
 
                 if (diff > sync_threshold) {
                     int64_t wait_us = static_cast<int64_t>(diff * 1000000);
