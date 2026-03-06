@@ -27,34 +27,45 @@ extern "C" {
 }
 
 // ------------------------------------------------------------
-// 线程安全队列模板
+// 线程安全队列模板（支持最大容量和阻塞推入）
 // ------------------------------------------------------------
 template<typename T>
 class SafeQueue {
 public:
-    void push(T value) {
-        std::lock_guard<std::mutex> lock(m_mutex);
+    explicit SafeQueue(size_t max_size = 0) : m_max_size(max_size), m_abort(false) {}
+
+    bool push(T value) {
+        std::unique_lock<std::mutex> lock(m_mutex);
+        if (m_max_size > 0) {
+            m_cond_push.wait(lock, [this] {
+                return m_queue.size() < m_max_size || m_abort;
+            });
+            if (m_abort) return false;
+        }
         m_queue.push(std::move(value));
-        m_cond.notify_one();
+        m_cond_pop.notify_one();
+        return true;
     }
 
     bool pop(T& value, bool block = true) {
         std::unique_lock<std::mutex> lock(m_mutex);
         if (block) {
-            m_cond.wait(lock, [this] { return !m_queue.empty() || m_abort; });
+            m_cond_pop.wait(lock, [this] { return !m_queue.empty() || m_abort; });
             if (m_abort) return false;
         } else {
             if (m_queue.empty()) return false;
         }
         value = std::move(m_queue.front());
         m_queue.pop();
+        if (m_max_size > 0) m_cond_push.notify_one();
         return true;
     }
 
     void abort() {
         std::lock_guard<std::mutex> lock(m_mutex);
         m_abort = true;
-        m_cond.notify_all();
+        m_cond_pop.notify_all();
+        m_cond_push.notify_all();
     }
 
     size_t size() {
@@ -70,17 +81,10 @@ public:
 private:
     std::queue<T> m_queue;
     std::mutex m_mutex;
-    std::condition_variable m_cond;
-    bool m_abort = false;
-};
-
-// ------------------------------------------------------------
-// 音频帧数据结构（重采样后）
-// ------------------------------------------------------------
-struct AudioFrame {
-    uint8_t* data = nullptr;
-    int samples = 0;
-    double pts = 0.0;
+    std::condition_variable m_cond_pop;
+    std::condition_variable m_cond_push;
+    size_t m_max_size;
+    bool m_abort;
 };
 
 // ------------------------------------------------------------
@@ -122,10 +126,10 @@ SDL_Renderer* renderer = nullptr;
 SDL_Texture* texture = nullptr;
 SDL_AudioDeviceID audio_dev = 0;
 
-SafeQueue<AVPacket*> audio_packet_queue;
-SafeQueue<AVPacket*> video_packet_queue;
-SafeQueue<AudioFrame> audio_frame_queue;
-SafeQueue<VideoFrame> video_frame_queue;
+// 队列（设置最大容量）
+SafeQueue<AVPacket*> audio_packet_queue(100);
+SafeQueue<AVPacket*> video_packet_queue(50);
+SafeQueue<VideoFrame> video_frame_queue(10);   // 解码后的视频帧，极大，严格控制
 
 std::atomic<int64_t> audio_samples_pushed(0);
 std::atomic<bool> quit(false);
@@ -182,7 +186,7 @@ double get_audio_clock() {
 }
 
 // ------------------------------------------------------------
-// 解复用线程
+// 解复用线程（修复内存泄漏和退出逻辑）
 // ------------------------------------------------------------
 void demux_thread_func() {
     AVPacket* pkt = av_packet_alloc();
@@ -192,21 +196,31 @@ void demux_thread_func() {
 
         if (pkt->stream_index == audio_stream_idx) {
             AVPacket* clone = av_packet_clone(pkt);
-            audio_packet_queue.push(clone);
+            av_packet_unref(pkt);   // 立即释放原始包
+            if (!audio_packet_queue.push(clone)) {
+                av_packet_free(&clone);
+                break;
+            }
         } else if (pkt->stream_index == video_stream_idx) {
             AVPacket* clone = av_packet_clone(pkt);
-            video_packet_queue.push(clone);
+            av_packet_unref(pkt);
+            if (!video_packet_queue.push(clone)) {
+                av_packet_free(&clone);
+                break;
+            }
         } else {
             av_packet_unref(pkt);
         }
     }
     av_packet_free(&pkt);
-    audio_packet_queue.push(nullptr);
-    video_packet_queue.push(nullptr);
+    // 通知所有线程退出
+    quit = true;
+    audio_packet_queue.abort();
+    video_packet_queue.abort();
 }
 
 // ------------------------------------------------------------
-// 音频解码线程
+// 音频解码线程（直接推送到 SDL 队列）
 // ------------------------------------------------------------
 void audio_decoder_thread_func() {
     AVPacket* pkt = nullptr;
@@ -214,7 +228,7 @@ void audio_decoder_thread_func() {
     uint8_t* out_buf = (uint8_t*)av_malloc(192000 * 4);
 
     while (!quit && audio_packet_queue.pop(pkt)) {
-        if (!pkt) break;
+        if (!pkt) break;   // 保留兼容，实际不再使用 nullptr
 
         if (avcodec_send_packet(audio_codec_ctx, pkt) == 0) {
             while (avcodec_receive_frame(audio_codec_ctx, frame) == 0) {
@@ -229,6 +243,7 @@ void audio_decoder_thread_func() {
                     SDL_QueueAudio(audio_dev, out_buf, bytes);
                     audio_samples_pushed.fetch_add(out_samples, std::memory_order_relaxed);
                 }
+                av_frame_unref(frame);   // 释放当前帧，防止解码器内部缓冲泄漏
             }
         }
         av_packet_free(&pkt);
@@ -239,7 +254,7 @@ void audio_decoder_thread_func() {
 }
 
 // ------------------------------------------------------------
-// 视频解码线程（支持硬件加速）
+// 视频解码线程（支持硬件加速，修复内存泄漏和推入检查）
 // ------------------------------------------------------------
 void video_decoder_thread_func() {
     AVPacket* pkt = nullptr;
@@ -309,6 +324,7 @@ void video_decoder_thread_func() {
                     out_frame->height = video_height;
                     if (av_frame_get_buffer(out_frame, 0) < 0) {
                         av_frame_free(&out_frame);
+                        av_frame_unref(frame);
                         continue;
                     }
                     sws_scale(sws_ctx,
@@ -318,9 +334,13 @@ void video_decoder_thread_func() {
 
                 if (out_frame) {
                     double pts = frame->best_effort_timestamp * av_q2d(video_stream->time_base);
-                    video_frame_queue.push({out_frame, pts});
+                    if (!video_frame_queue.push({out_frame, pts})) {
+                        av_frame_free(&out_frame);   // 队列终止，释放帧
+                        av_frame_unref(frame);
+                        break;
+                    }
                 }
-                av_frame_unref(frame);
+                av_frame_unref(frame);   // 释放当前帧
             }
         }
         av_packet_free(&pkt);
@@ -444,7 +464,7 @@ int main(int argc, char* argv[]) {
     }
 
     if (video_stream_idx != -1) {
-        window = SDL_CreateWindow("FFmpeg + SDL2 音视频同步播放器",
+        window = SDL_CreateWindow("FFmpeg + SDL2 音视频同步播放器 (硬件加速)",
                                   SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
                                   1280, 720, SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE);
         renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
@@ -554,7 +574,8 @@ int main(int argc, char* argv[]) {
             }
         }
 
-        if (video_frame_queue.empty() && audio_packet_queue.empty()) {
+        // 检查播放结束：视频帧队列空、视频包队列空、音频包队列空，且音频播放完
+        if (video_frame_queue.empty() && video_packet_queue.empty() && audio_packet_queue.empty()) {
             if (audio_stream_idx != -1) {
                 if (SDL_GetQueuedAudioSize(audio_dev) == 0) running = false;
             } else {
