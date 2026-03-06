@@ -123,7 +123,6 @@ SDL_AudioDeviceID audio_dev = 0;
 // 队列
 SafeQueue<AVPacket*> audio_packet_queue;
 SafeQueue<AVPacket*> video_packet_queue;
-SafeQueue<AudioFrame> audio_frame_queue;   // 不再使用，但保留定义
 SafeQueue<VideoFrame> video_frame_queue;
 
 // 同步时钟（音频样本计数器）
