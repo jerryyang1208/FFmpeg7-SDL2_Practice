@@ -8,6 +8,7 @@
 #include <atomic>
 #include <chrono>
 #include <iomanip>
+#include <algorithm>  // 用于 std::max
 
 #include <windows.h>
 #include <commdlg.h>
@@ -373,10 +374,45 @@ int main(int argc, char* argv[]) {
         return -1;
     }
 
+	// 若视频存在，根据主显示器分辨率以及所选视频分辨率，计算窗口初始大小
+	int window_width = 1280, window_height = 720; // 默认值
+	if (video_stream_idx != -1) {
+		// 获取主显示器分辨率
+		SDL_Rect display_bounds;
+		int screen_w = 2560, screen_h = 1440; // 默认值
+		if (SDL_GetDisplayBounds(0, &display_bounds) == 0) {
+			screen_w = display_bounds.w;
+			screen_h = display_bounds.h;
+		}
+
+		// 设置最大窗口尺寸为屏幕的95%，留出边距以便操作
+		const double max_screen_ratio = 0.95;
+		int max_w = static_cast<int>(screen_w * max_screen_ratio);
+		int max_h = static_cast<int>(screen_h * max_screen_ratio);
+
+		// 使用视频原始分辨率作为窗口候选大小
+		int win_w = video_width;
+		int win_h = video_height;
+
+		// 如果超出最大允许尺寸，等比例缩小到刚好适应
+		if (win_w > max_w || win_h > max_h) {
+			double ratio_w = static_cast<double>(max_w) / win_w;
+			double ratio_h = static_cast<double>(max_h) / win_h;
+			double ratio = std::min(ratio_w, ratio_h); // 取较小缩放因子，确保两边都不超出
+			win_w = static_cast<int>(win_w * ratio + 0.5);
+			win_h = static_cast<int>(win_h * ratio + 0.5);
+		}
+
+		// 确保窗口尺寸至少为1
+		window_width = std::max(1, win_w);
+		window_height = std::max(1, win_h);
+	}
+
     if (video_stream_idx != -1) {
         window = SDL_CreateWindow("FFmpeg + SDL2 音视频同步播放器",
                                   SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
-                                  1280, 720, SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE);
+                                  window_width, window_height,
+                                  SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE);
         renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
         texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_IYUV, SDL_TEXTUREACCESS_STREAMING,
                                     video_width, video_height);
