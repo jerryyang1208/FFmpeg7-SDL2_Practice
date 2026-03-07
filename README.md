@@ -269,6 +269,7 @@ ffmpeg+SDL2/
 - **文档**：添加硬件加速版本的详细说明和性能对比数据
 
 ### v1.3.0 (2026.3.8)
+- **新增**：`Audio_Video_Player.cpp` `HW_Audio_Video_Player.cpp`均引入 FFmpeg 滤镜库
 
 ## 📄 许可证
 
