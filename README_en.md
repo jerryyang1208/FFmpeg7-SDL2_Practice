@@ -269,6 +269,8 @@ The project includes the `.vscode` configuration folder:
 - **Performance**: Hardware-accelerated version reduces CPU usage by about 70% when playing 4K high-bitrate videos
 - **Documentation**: Added detailed description and performance comparison data for hardware-accelerated version
 
+### v1.3.0 (2026.3.8)
+
 ## 📄 License
 
 This project is for learning and exchange purposes only. FFmpeg and SDL2 are subject to their respective open-source licenses.
