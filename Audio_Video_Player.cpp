@@ -614,12 +614,26 @@ int main(int argc, char* argv[]) {
     // 6. 打印媒体信息
     std::cout << "\n========== Media Information ==========" << std::endl;
     std::cout << "Format: " << fmt_ctx->iformat->long_name << std::endl;
-    if (audio_stream_idx != -1)
+    if (audio_stream_idx != -1) {
+		int64_t audio_bitrate = audio_stream->codecpar->bit_rate;
         std::cout << "Audio Codec: " << audio_codec_ctx->codec->long_name << std::endl;
-    if (video_stream_idx != -1)
+		std::cout << "Audio Bitrate: " << audio_bitrate / 1000 << " kbps" << std::endl;
+	}
+    if (video_stream_idx != -1) {
+		int64_t video_bitrate = video_stream->codecpar->bit_rate;
         std::cout << "Video Codec: " << video_codec_ctx->codec->long_name << std::endl;
-    std::cout << "Duration: " << total_duration_sec / 60 << ":"
-              << std::setfill('0') << std::setw(2) << total_duration_sec % 60 << std::endl;
+		std::cout << "Video Bitrate: " << video_bitrate / 1000 << " kbps" << std::endl;
+		std::cout << "Resolution: " << video_codec_ctx->width << "x" << video_codec_ctx->height << std::endl;
+		double fps = 0.0;
+        if (video_stream->avg_frame_rate.den && video_stream->avg_frame_rate.num) {
+            fps = av_q2d(video_stream->avg_frame_rate);
+        } else if (video_stream->r_frame_rate.den && video_stream->r_frame_rate.num) {
+            fps = av_q2d(video_stream->r_frame_rate);
+        }
+        if (fps > 0) {
+            std::cout << "Frame Rate: " << std::fixed << std::setprecision(2) << fps << " fps" << std::endl;
+        }
+	}
     std::cout << "=======================================\n" << std::endl;
 
     // 7. 启动线程
