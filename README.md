@@ -270,6 +270,7 @@ ffmpeg+SDL2/
 
 ### v1.3.0 (2026.3.8)
 - **新增**：`Audio_Video_Player.cpp` `HW_Audio_Video_Player.cpp`均引入 FFmpeg 滤镜库
+- **优化**：软件/硬件版本的播放器代码，均通过滤镜增添了对手机竖屏视频的自动旋转伸缩适配
 
 ## 📄 许可证
 
