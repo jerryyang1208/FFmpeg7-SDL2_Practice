@@ -200,12 +200,16 @@ File → [Demux Thread] → Audio Packet Queue → [Audio Decode Thread] → SDL
 File → [Demux Thread] → Audio Packet Queue → [Audio Decode Thread] → SDL_QueueAudio → Audio Device
                   → Video Packet Queue → [Video Decode Thread (Hardware Accelerated)] → Video Frame Queue → [Main Thread Render] → Window
 
+![HW accelerating process](Pictures/HW_accelerate.png)
+
 **Technical Highlights**:
 - **Hardware Acceleration Initialization**: Iterates through decoder's `AVCodecHWConfig`, selects DXVA2 device type, creates hardware device context and associates with decoder
 - **Hardware Frame Download**: Uses `av_hwframe_transfer_data()` to download frames from GPU to system memory,优先下载为 YUV420P, if fails attempts NV12 and converts
 - **Persistent Download Frames**: Pre-allocates two download frames (YUV420P and NV12) to reduce frequent allocation, reused in video decoding thread
 - **Memory Optimization**: Bounded queues with backpressure mechanism, producers automatically block when queue is full, avoiding infinite accumulation; all `AVPacket` and `AVFrame` are correctly freed
 - **Compatibility**: Output still YUV420P, consistent with SDL texture format, no need to modify rendering code
+
+![HW Decoding process](Pictures/Decode.png)
 
 **Performance Comparison** (tested with 4K 60fps 70Mbps high-stress video):
 - Software decoding version: CPU usage ≈ 30%, memory ≈ 650MB
