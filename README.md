@@ -6,15 +6,11 @@
 
 # FFmpeg7-SDL2 多媒体实践项目
 
-<div>
-
-<div align="center">
-
 ![FFmpeg](https://img.shields.io/badge/FFmpeg-7.0.2-green)
 ![SDL2](https://img.shields.io/badge/SDL2-2.30.6-blue)
 ![Platform](https://img.shields.io/badge/Platform-Windows-lightgrey)
 
-<div>
+</div>
 
 基于 FFmpeg 7.0.2 和 SDL2 2.30.6 的多媒体播放器实践项目，包含音频播放、PCM 播放、视频播放和 SDL 图形绘制、多线程音视频同步播放器以及 HW 硬件加速解码的音视频播放器，一共六个独立示例。
 软硬件版本的音视频播放器均具备基本播放功能以及媒体信息显示，还有对不同分辨率与横竖方向的视频做了旋转伸缩适配。同时为便于对比理解，保留原版硬件加速音视频播放器 HW.cpp 代码，同样支持 DXVA2 硬件解码，但新版大幅降低 CPU 与内存占用，可丝滑流畅播放 4K 高帧率极高码率视频。
