@@ -6,6 +6,10 @@
 
 # FFmpeg7-SDL2 多媒体实践项目
 
+<div>
+
+<div align="center">
+
 ![FFmpeg](https://img.shields.io/badge/FFmpeg-7.0.2-green)
 ![SDL2](https://img.shields.io/badge/SDL2-2.30.6-blue)
 ![Platform](https://img.shields.io/badge/Platform-Windows-lightgrey)
