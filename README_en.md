@@ -2,11 +2,15 @@
   <a href="README.md">中文</a>
 </div>
 
+<div align="center">
+
 # FFmpeg7-SDL2 Multimedia Practice Project
 
 ![FFmpeg](https://img.shields.io/badge/FFmpeg-7.0.2-green)
 ![SDL2](https://img.shields.io/badge/SDL2-2.30.6-blue)
 ![Platform](https://img.shields.io/badge/Platform-Windows-lightgrey)
+
+</div>
 
 A multimedia player practice project based on FFmpeg 7.0.2 and SDL2 2.30.6, containing six independent examples including audio playback, PCM playback, video playback, SDL graphics rendering, multi-threaded audio/video synchronized player, and HW hardware-accelerated decoding player. Both software and hardware versions of the audio/video players feature basic playback functionality, media information display, and rotation/scaling adaptation for videos of different resolutions and orientations. For better comparison and understanding, the original hardware-accelerated audio/video player code HW.cpp is preserved, which also supports DXVA2 hardware decoding, but the new version significantly reduces CPU and memory usage, enabling smooth playback of 4K high-frame-rate, extremely high-bitrate videos.
 
