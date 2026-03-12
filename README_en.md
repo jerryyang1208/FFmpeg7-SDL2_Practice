@@ -281,9 +281,9 @@ Project includes `.vscode` configuration folder:
 
 ### v1.3.0 (2026.3.8)
 - **New**: `Audio_Video_Player.cpp` `HW_Audio_Video_Player.cpp` both introduce FFmpeg filter library, retaining the original hardware-accelerated player code without filter library as HW.cpp for future differentiated learning and performance comparison.
-- **Optimization**: Software/hardware version player code, both通过滤镜增添了对手机竖屏视频的自动旋转伸缩适配
-- **Performance**: `HW_Audio_Video_Player.cpp` playing 4K高码率视频 memory usage从 800MB 降低到 350MB
-- **Documentation**: Added Zhihu blog https://zhuanlan.zhihu.com/p/2013200050549958415 详细介绍硬件加速的原理、流程以及代码应用,还有滤镜库引用后的视频画面的旋转伸缩适配
+- **Optimization**: Software/hardware version player code, both add automatic rotation and scaling adaptation for portrait videos through filters.
+- **Performance**: `HW_Audio_Video_Player.cpp` playing 4K high-bitrate video memory usage reduced from 800MB to 350MB.
+- **Documentation**: Added Zhihu blog https://zhuanlan.zhihu.com/p/2013200050549958415 detailing the principles, workflow, and code application of hardware acceleration, as well as video rotation and scaling adaptation after integrating filter libraries.
 
 ## 📄 License
 
