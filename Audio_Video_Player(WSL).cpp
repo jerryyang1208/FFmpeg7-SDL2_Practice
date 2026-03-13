@@ -10,11 +10,12 @@
 #include <iomanip>
 #include <algorithm>
 
-
 // 添加Linux文件操作需要的头文件
 #include <sys/stat.h>   // 用于 stat 函数
 #include <unistd.h>     // 用于 access 函数
 #include <limits.h>     // 用于 PATH_MAX
+#include <wordexp.h>    // 用于 wordexp 路径展开
+#include <errno.h>      // 用于 errno 错误码
 
 extern "C" {
     #include <libavformat/avformat.h>
@@ -157,31 +158,57 @@ std::thread video_dec_thread;
 int64_t total_duration_sec = 0;
 
 // ------------------------------------------------------------
-// 辅助函数：Linux下命令行文件输入
+// 辅助函数：Linux下命令行文件输入（支持~路径展开）
 // ------------------------------------------------------------
+std::string ExpandPath(const std::string& path) {
+    wordexp_t exp_result;
+    std::string expanded_path = path;
+    
+    // 使用 wordexp 展开路径中的 ~ 和 ${} 等
+    if (wordexp(path.c_str(), &exp_result, 0) == 0) {
+        if (exp_result.we_wordc > 0) {
+            expanded_path = exp_result.we_wordv[0];
+        }
+        wordfree(&exp_result);
+    }
+    // 如果 wordexp 失败，返回原路径
+    
+    return expanded_path;
+}
+
 std::string GetFilePath() {
     std::string path;
-    std::cout << "请输入视频文件路径: ";
+    std::cout << "请输入视频文件路径 (支持 ~/ 路径展开): ";
     std::getline(std::cin, path);
     
     // 去除首尾空格
     path.erase(0, path.find_first_not_of(" \t\n\r"));
     path.erase(path.find_last_not_of(" \t\n\r") + 1);
     
+    if (path.empty()) {
+        std::cerr << "路径不能为空" << std::endl;
+        return "";
+    }
+    
+    // 展开路径（处理 ~/ 等）
+    std::string expanded_path = ExpandPath(path);
+    
     // 检查文件是否存在
     struct stat st;
-    if (stat(path.c_str(), &st) != 0) {
-        std::cerr << "文件不存在: " << path << std::endl;
+    if (stat(expanded_path.c_str(), &st) != 0) {
+        std::cerr << "文件不存在: " << expanded_path << std::endl;
+        std::cerr << "错误原因: " << strerror(errno) << std::endl;
         return "";
     }
     
     // 检查是否为普通文件
     if (!S_ISREG(st.st_mode)) {
-        std::cerr << "不是普通文件: " << path << std::endl;
+        std::cerr << "不是普通文件: " << expanded_path << std::endl;
         return "";
     }
     
-    return path;
+    std::cout << "已选择文件: " << expanded_path << std::endl;
+    return expanded_path;
 }
 
 // Linux下不需要编码转换，直接返回原路径
@@ -357,10 +384,19 @@ void video_decoder_thread_func() {
 // ------------------------------------------------------------
 // 主函数
 // ------------------------------------------------------------
-int main() {
-    // 1. 选择文件
-    std::string path = GetFilePath();
-    if (path.empty()) return 0;
+int main(int argc, char* argv[]) {
+    std::string path;
+    
+    // 如果提供了命令行参数，直接使用（支持拖放文件）
+    if (argc > 1) {
+        path = argv[1];
+        std::cout << "从命令行参数获取文件: " << path << std::endl;
+    } else {
+        // 否则交互式输入
+        path = GetFilePath();
+        if (path.empty()) return 0;
+    }
+    
     std::string utf8Path = PathToUtf8(path);
 
     // 2. 初始化 FFmpeg
@@ -584,7 +620,7 @@ int main() {
     }
 
     if (video_stream_idx != -1) {
-        window = SDL_CreateWindow("FFmpeg + SDL2 音视频同步播放器",
+        window = SDL_CreateWindow("FFmpeg + SDL2 音视频同步播放器 (WSL)",
                                   SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
                                   win_w, win_h,
                                   SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE);
