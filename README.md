@@ -286,6 +286,9 @@ ffmpeg+SDL2/
 - **性能**：`HW_Audio_Video_Player.cpp`播放 4K 高码率视频时的内存占用从 800MB 降低到 350MB
 - **文档**：新增知乎博客 https://zhuanlan.zhihu.com/p/2013200050549958415 详细介绍硬件加速的原理、流程以及代码应用，还有滤镜库引用后的视频画面的旋转伸缩适配
 
+### v1.4.0 (2026.3.13)
+- **新增**：将原有的 `Audio_Video_Player(WSL).cpp` 修改优化，新增了 WSL/Linux 平台可使用运行的 `Audio_Video_Player(WSL).cpp`，可实现在Windows 平台下实现的所有功能，并以 CLI 形式输入 WSL 里的媒体文件路径，进行解码播放。
+
 后续将尝试与 live555 等传输相关服务器联动，扩展项目的更多实用性泛用性。
 
 ## 📄 许可证
