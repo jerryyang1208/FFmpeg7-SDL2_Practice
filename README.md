@@ -63,14 +63,14 @@ ffmpeg+SDL2/
 3. 确保 DLL 文件在可执行文件同一目录或系统 PATH 中，运行时必需这些动态链接库文件
 
 ### 编译环境
-- **编译器**: MSVC (Visual Studio) 或 MinGW（VS Code）
+- **编译器**: MSVC (Visual Studio) 或 MinGW（VS Code），后续更新 Linux 版本是使用 GCC/G++（WSL VS Code）编译
 - **标准**: C++11/14
 - **包含目录**: 需添加 FFmpeg 和 SDL2 的 include 路径
 - **库目录**: 需添加 FFmpeg 和 SDL2 的 lib 路径
 - **链接库**: 
 - FFmpeg: avformat, avcodec, avutil, swresample, swscale
 - SDL2: SDL2
-- Windows: comdlg32 (用于运行后呼出文件对话框，自选本地文件)
+- Windows: comdlg32 (用于运行后呼出文件对话框，自选本地文件)，后续更新 Linux 版本是使用 POSIX API 即 unistd
 
 ## 📁 项目文件说明
 
@@ -158,7 +158,7 @@ ffmpeg+SDL2/
 
 ---
 
-### 5. 🎯 Audio_Video_Player.cpp - 多线程音视频同步播放器（新增 ⭐）
+### 5. 🎯 Audio_Video_Player.cpp - 多线程音视频同步播放器
 **功能**: 基于**多线程解码 + 队列缓冲 + 音频为主同步**的专业级音视频播放器，支持音视频文件播放，纯音频文件无窗口。
 
 **核心特性**:
@@ -187,6 +187,14 @@ ffmpeg+SDL2/
 2. 若为纯音频文件，无窗口弹出，控制台显示播放进度
 3. 若为视频文件，弹出窗口开始播放，画面与声音同步
 4. 播放完毕自动退出，或点击窗口关闭按钮退出
+
+
+**差异版本**: 最新更新了 WSL 版本的音视频同步播放器，具备以上所有功能，仅需做以下修改即可实现跨平台移植使用：
+1. 除去 Windows 版本的 <windows.h> 和 <commdlg.h> 头文件，添加 WSL 需要的 <sys/stat.h>、<unistd.h> 和 <limits.h>
+2. Windows 版本的文件选择是图形化对话框且 ANSI 转 UTF-8，WSL 版本则保持自己的命令行交互输入特点，且默认 UTF-8 无需转换
+3. WSL版本显式构造函数 struct VideoFrame，解决 GCC 严格编译可能出现的问题，
+4. 核心 FFmpeg 逻辑 100% 复用，平台无关，UI 层由 SDL2 图形渲染完全兼容，使用 POSIX 标准 API 替代 Windows 专属 API
+5. CMake 统一管理，通过 pkg-config 自动检测依赖，充分证明了 FFmpeg + SDL2 组合的跨平台能力
 
 ---
 
