@@ -179,6 +179,7 @@ void video_decoder_thread_func() {
                         out_frame->width = video_codec_ctx->width;
                         out_frame->height = video_codec_ctx->height;
                         if (av_frame_get_buffer(out_frame, 0) >= 0) {
+                            // 使用优化后的sws_scale进行格式转换
                             sws_scale(sws_ctx, process_frame->data, process_frame->linesize, 0, video_codec_ctx->height, out_frame->data, out_frame->linesize);
                             double pts_sec = get_frame_pts(process_frame, video_stream);
                             video_frame_queue.push({out_frame, pts_sec});
@@ -348,9 +349,11 @@ int main(int argc, char* argv[]) {
             video_height = video_codec_ctx->height;
         }
 
+        // 使用更快的缩放算法
         sws_ctx = sws_getContext(video_codec_ctx->width, video_codec_ctx->height, 
                                  (hw_pix_fmt != AV_PIX_FMT_NONE ? AV_PIX_FMT_NV12 : video_codec_ctx->pix_fmt),
-                                 video_codec_ctx->width, video_codec_ctx->height, AV_PIX_FMT_YUV420P, SWS_BILINEAR, nullptr, nullptr, nullptr);
+                                 video_codec_ctx->width, video_codec_ctx->height, AV_PIX_FMT_YUV420P, 
+                                 SWS_FAST_BILINEAR, nullptr, nullptr, nullptr);
     }
 
     // 窗口自适应初始化
