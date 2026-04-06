@@ -9,6 +9,10 @@
 #include <mutex>
 #include <condition_variable>
 #include <atomic>
+#include <chrono>
+#include <iomanip>
+#include <algorithm>
+#include <cstdio>
 
 #include <windows.h>
 #include <commdlg.h>
@@ -97,15 +101,55 @@ struct VideoFrame {
 };
 
 // 队列大小常量
-const int DEFAULT_AUDIO_QUEUE_SIZE = 100;
-const int DEFAULT_VIDEO_QUEUE_SIZE = 50;
+const int DEFAULT_AUDIO_QUEUE_SIZE = 30;
+const int DEFAULT_VIDEO_QUEUE_SIZE = 20;
 const int DEFAULT_FRAME_QUEUE_SIZE = 10;
 
+// 公共全局变量声明
+extern AVFormatContext* fmt_ctx;
+extern int audio_stream_idx;
+extern int video_stream_idx;
+extern AVCodecContext* audio_codec_ctx;
+extern AVCodecContext* video_codec_ctx;
+extern AVStream* audio_stream;
+extern AVStream* video_stream;
+
+extern SwrContext* swr_ctx;
+extern int audio_samplerate;
+extern int audio_channels;
+extern AVSampleFormat audio_out_fmt;
+
+extern AVFilterGraph* filter_graph;
+extern AVFilterContext* buffersrc_ctx;
+extern AVFilterContext* buffersink_ctx;
+extern std::atomic<bool> video_filter_enabled;
+
+extern SwsContext* sws_ctx;
+extern int video_width;
+extern int video_height;
+
+extern SDL_Window* window;
+extern SDL_Renderer* renderer;
+extern SDL_Texture* texture;
+extern SDL_AudioDeviceID audio_dev;
+
+extern SafeQueue<AVPacket*> audio_packet_queue;
+extern SafeQueue<AVPacket*> video_packet_queue;
+extern SafeQueue<VideoFrame> video_frame_queue;
+
+extern std::atomic<int64_t> audio_samples_pushed;
+extern std::atomic<bool> quit;
+extern std::thread demux_thread;
+extern std::thread audio_dec_thread;
+extern std::thread video_dec_thread;
+
+extern int64_t total_duration_sec;
+
 // 辅助函数
+double get_audio_clock(int64_t samples_pushed, SDL_AudioDeviceID dev, int samplerate, int channels);
+double get_frame_pts(AVFrame* frame, AVStream* stream);
 std::string SelectFileDialog();
 std::string AnsiToUtf8(const std::string& ansiStr);
-double get_audio_clock(int64_t audio_samples_pushed, SDL_AudioDeviceID audio_dev, int audio_samplerate, int audio_channels);
-double get_frame_pts(AVFrame* frame, AVStream* stream);
 
 // 线程优先级设置
 void set_thread_priority(std::thread::native_handle_type handle, int priority);

@@ -1,72 +1,20 @@
-#include <iostream>
-#include <cstdio>
-#include <string>
-#include <vector>
-#include <queue>
-#include <thread>
-#include <mutex>
-#include <condition_variable>
-#include <atomic>
-#include <chrono>
-#include <iomanip>
-#include <algorithm> // for std::min, std::max
-
 #include "common.h"
 
-// ------------------------------------------------------------
-// 全局变量
-// ------------------------------------------------------------
-AVFormatContext* fmt_ctx = nullptr;
-int audio_stream_idx = -1;
-int video_stream_idx = -1;
-AVCodecContext* audio_codec_ctx = nullptr;
-AVCodecContext* video_codec_ctx = nullptr;
-AVStream* audio_stream = nullptr;
-AVStream* video_stream = nullptr;
-
-SwrContext* swr_ctx = nullptr;
-int audio_samplerate = 0;
-int audio_channels = 2;
-AVSampleFormat audio_out_fmt = AV_SAMPLE_FMT_S16;
-
-SwsContext* sws_ctx = nullptr;
-int video_width = 0;
-int video_height = 0;
-
+// 硬件加速相关全局变量
 AVBufferRef* hw_device_ctx = nullptr;
 enum AVPixelFormat hw_pix_fmt = AV_PIX_FMT_NONE;
 
-AVFilterGraph* filter_graph = nullptr;
-AVFilterContext* buffersrc_ctx = nullptr;
-AVFilterContext* buffersink_ctx = nullptr;
-std::atomic<bool> video_filter_enabled(false);
-
-SDL_Window* window = nullptr;
-SDL_Renderer* renderer = nullptr;
-SDL_Texture* texture = nullptr;
-SDL_AudioDeviceID audio_dev = 0;
-
+// 本地变量
 SDL_Rect dst_rect;
 int current_window_w, current_window_h;
 float video_aspect;
 
-// 队列（设置最大容量）
-SafeQueue<AVPacket*> audio_packet_queue(DEFAULT_AUDIO_QUEUE_SIZE * 3); // 硬件加速版本使用更大的队列
-SafeQueue<AVPacket*> video_packet_queue(DEFAULT_VIDEO_QUEUE_SIZE);
-SafeQueue<VideoFrame> video_frame_queue(DEFAULT_FRAME_QUEUE_SIZE);
-
-std::atomic<int64_t> audio_samples_pushed(0);
-std::atomic<bool> quit(false);
-std::thread demux_thread, audio_dec_thread, video_dec_thread;
-
-int64_t total_duration_sec = 0;
-
-// ------------------------------------------------------------
 // 音频时钟（基于已播放样本数）
-// ------------------------------------------------------------
 double get_audio_clock() {
     return ::get_audio_clock(audio_samples_pushed.load(), audio_dev, audio_samplerate, audio_channels);
 }
+
+
 
 void demux_thread_func() {
     // 设置线程优先级为高于正常
@@ -110,12 +58,17 @@ void audio_decoder_thread_func() {
                     const double max_queue_seconds = 0.5;
                     const int max_queued_bytes = static_cast<int>(audio_samplerate * audio_channels * 2 * max_queue_seconds);
                     
-                    // 等待队列空间，使用更短的延迟以提高响应性
+                    // 等待队列空间，使用指数退避策略，减少CPU占用
                     int wait_count = 0;
                     const int max_wait_count = 200; // 最多等待1秒
+                    int delay_ms = 1; // 初始延迟1ms
                     while (!quit && SDL_GetQueuedAudioSize(audio_dev) > max_queued_bytes && wait_count < max_wait_count) {
-                        SDL_Delay(5); // 延迟更短，提高响应
+                        SDL_Delay(delay_ms);
                         wait_count++;
+                        // 指数退避，最多5ms
+                        if (delay_ms < 5) {
+                            delay_ms *= 2;
+                        }
                     }
                     
                     // 只有在队列有足够空间时才推送数据
@@ -141,12 +94,27 @@ void video_decoder_thread_func() {
     AVFrame* frame = av_frame_alloc();
     AVFrame* sw_frame = av_frame_alloc();
     AVFrame* filt_frame = av_frame_alloc();
+    AVFrame* out_frame = av_frame_alloc(); // 复用的输出帧
 
-    if (!frame || !sw_frame || !filt_frame) {
+    if (!frame || !sw_frame || !filt_frame || !out_frame) {
         std::cerr << "Failed to allocate video frames." << std::endl;
         if (frame) av_frame_free(&frame);
         if (sw_frame) av_frame_free(&sw_frame);
         if (filt_frame) av_frame_free(&filt_frame);
+        if (out_frame) av_frame_free(&out_frame);
+        return;
+    }
+
+    // 初始化复用帧
+    out_frame->format = AV_PIX_FMT_YUV420P;
+    out_frame->width = video_width;
+    out_frame->height = video_height;
+    if (av_frame_get_buffer(out_frame, 0) < 0) {
+        std::cerr << "Failed to allocate output frame buffer." << std::endl;
+        av_frame_free(&frame);
+        av_frame_free(&sw_frame);
+        av_frame_free(&filt_frame);
+        av_frame_free(&out_frame);
         return;
     }
 
@@ -173,19 +141,20 @@ void video_decoder_thread_func() {
                         }
                     }
                 } else {
-                    AVFrame* out_frame = av_frame_alloc();
-                    if (out_frame) {
-                        out_frame->format = AV_PIX_FMT_YUV420P;
-                        out_frame->width = video_codec_ctx->width;
-                        out_frame->height = video_codec_ctx->height;
-                        if (av_frame_get_buffer(out_frame, 0) >= 0) {
-                            // 使用优化后的sws_scale进行格式转换
-                            sws_scale(sws_ctx, process_frame->data, process_frame->linesize, 0, video_codec_ctx->height, out_frame->data, out_frame->linesize);
-                            double pts_sec = get_frame_pts(process_frame, video_stream);
-                            video_frame_queue.push({out_frame, pts_sec});
-                        } else {
-                            av_frame_free(&out_frame);
-                        }
+                    // 复用out_frame，避免频繁的内存分配和释放
+                    av_frame_unref(out_frame);
+                    out_frame->format = AV_PIX_FMT_YUV420P;
+                    out_frame->width = video_width;
+                    out_frame->height = video_height;
+                    
+                    // 使用优化后的sws_scale进行格式转换
+                    sws_scale(sws_ctx, process_frame->data, process_frame->linesize, 0, video_height, out_frame->data, out_frame->linesize);
+                    
+                    // 克隆帧以便队列使用
+                    AVFrame* cloned_frame = av_frame_clone(out_frame);
+                    if (cloned_frame) {
+                        double pts_sec = get_frame_pts(process_frame, video_stream);
+                        video_frame_queue.push({cloned_frame, pts_sec});
                     }
                 }
                 av_frame_unref(frame);
@@ -196,6 +165,7 @@ void video_decoder_thread_func() {
     av_frame_free(&frame);
     av_frame_free(&sw_frame);
     av_frame_free(&filt_frame);
+    av_frame_free(&out_frame);
 }
 
 // ------------------------------------------------------------
@@ -485,10 +455,10 @@ int main(int argc, char* argv[]) {
     if (audio_stream_idx != -1) audio_dec_thread = std::thread(audio_decoder_thread_func);
     if (video_stream_idx != -1) video_dec_thread = std::thread(video_decoder_thread_func);
 
-    // 等待音频时钟启动
-    if (audio_stream_idx != -1) {
+    // 等待视频帧队列有一定数量的帧，减少开头黑屏
+    if (video_stream_idx != -1) {
         int wait_cnt = 0;
-        while (!quit && get_audio_clock() <= 0.0 && wait_cnt < 200) {
+        while (!quit && video_frame_queue.size() < 3 && wait_cnt < 100) {
             SDL_Delay(10);
             wait_cnt++;
         }
@@ -560,13 +530,21 @@ int main(int argc, char* argv[]) {
 			if (video_frame_queue.pop(vf, false)) {
 				double audio_clock = get_audio_clock();
 				double diff = vf.pts - audio_clock;
-				if (diff > 0.02)
+				
+				// 优化时间同步，避免开头倍速跟进
+				if (diff > 0.1) {
+					// 差距太大，直接跳过
+					av_frame_free(&vf.frame);
+					continue;
+				} else if (diff > 0.02) {
+					// 小差距，适当等待
 					std::this_thread::sleep_for(std::chrono::microseconds((int)((diff - 0.01) * 1000000)));
+				}
 
 				SDL_UpdateYUVTexture(texture, nullptr,
-									vf.frame->data[0], vf.frame->linesize[0],
-									vf.frame->data[1], vf.frame->linesize[1],
-									vf.frame->data[2], vf.frame->linesize[2]);
+										vf.frame->data[0], vf.frame->linesize[0],
+										vf.frame->data[1], vf.frame->linesize[1],
+										vf.frame->data[2], vf.frame->linesize[2]);
 
 				SDL_RenderClear(renderer);
 				SDL_RenderCopy(renderer, texture, nullptr, &dst_rect);
@@ -574,7 +552,7 @@ int main(int argc, char* argv[]) {
 
 				av_frame_free(&vf.frame);
 			} else {
-				SDL_Delay(5);
+				SDL_Delay(1); // 减少延迟，提高响应性
 			}
 		}
 
