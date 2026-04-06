@@ -11,96 +11,7 @@
 #include <iomanip>
 #include <algorithm> // for std::min, std::max
 
-#include <windows.h>
-#include <commdlg.h>
-
-extern "C" {
-    #include <libavformat/avformat.h>
-    #include <libavcodec/avcodec.h>
-    #include <libavutil/avutil.h>
-    #include <libavutil/time.h>
-    #include <libavutil/channel_layout.h>
-    #include <libavutil/imgutils.h>
-    #include <libavutil/frame.h>
-    #include <libavutil/hwcontext.h>
-    #include <libavutil/display.h>
-    #include <libswresample/swresample.h>
-    #include <libswscale/swscale.h>
-
-    // 滤镜相关头文件
-    #include <libavfilter/avfilter.h>
-    #include <libavfilter/buffersink.h>
-    #include <libavfilter/buffersrc.h>
-    #include <libavutil/opt.h>
-
-    #include <SDL.h>
-}
-
-// ------------------------------------------------------------
-// 线程安全队列模板（同原代码）
-// ------------------------------------------------------------
-template<typename T>
-class SafeQueue {
-public:
-    explicit SafeQueue(size_t max_size = 0) : m_max_size(max_size), m_abort(false) {}
-
-    bool push(T value) {
-        std::unique_lock<std::mutex> lock(m_mutex);
-        if (m_max_size > 0) {
-            m_cond_push.wait(lock, [this] {
-                return m_queue.size() < m_max_size || m_abort;
-            });
-            if (m_abort) return false;
-        }
-        m_queue.push(std::move(value));
-        m_cond_pop.notify_one();
-        return true;
-    }
-
-    bool pop(T& value, bool block = true) {
-        std::unique_lock<std::mutex> lock(m_mutex);
-        if (block) {
-            m_cond_pop.wait(lock, [this] { return !m_queue.empty() || m_abort; });
-            if (m_abort) return false;
-        } else {
-            if (m_queue.empty()) return false;
-        }
-        value = std::move(m_queue.front());
-        m_queue.pop();
-        if (m_max_size > 0) m_cond_push.notify_one();
-        return true;
-    }
-
-    void abort() {
-        std::lock_guard<std::mutex> lock(m_mutex);
-        m_abort = true;
-        m_cond_pop.notify_all();
-        m_cond_push.notify_all();
-    }
-
-    size_t size() {
-        std::lock_guard<std::mutex> lock(m_mutex);
-        return m_queue.size();
-    }
-
-    bool empty() {
-        std::lock_guard<std::mutex> lock(m_mutex);
-        return m_queue.empty();
-    }
-
-private:
-    std::queue<T> m_queue;
-    std::mutex m_mutex;
-    std::condition_variable m_cond_pop;
-    std::condition_variable m_cond_push;
-    size_t m_max_size;
-    bool m_abort;
-};
-
-struct VideoFrame {
-    AVFrame* frame = nullptr;
-    double pts = 0.0;
-};
+#include "common.h"
 
 // ------------------------------------------------------------
 // 全局变量
@@ -139,9 +50,10 @@ SDL_Rect dst_rect;
 int current_window_w, current_window_h;
 float video_aspect;
 
-SafeQueue<AVPacket*> audio_packet_queue(300);
-SafeQueue<AVPacket*> video_packet_queue(50);
-SafeQueue<VideoFrame> video_frame_queue(10);
+// 队列（设置最大容量）
+SafeQueue<AVPacket*> audio_packet_queue(DEFAULT_AUDIO_QUEUE_SIZE * 3); // 硬件加速版本使用更大的队列
+SafeQueue<AVPacket*> video_packet_queue(DEFAULT_VIDEO_QUEUE_SIZE);
+SafeQueue<VideoFrame> video_frame_queue(DEFAULT_FRAME_QUEUE_SIZE);
 
 std::atomic<int64_t> audio_samples_pushed(0);
 std::atomic<bool> quit(false);
@@ -150,51 +62,16 @@ std::thread demux_thread, audio_dec_thread, video_dec_thread;
 int64_t total_duration_sec = 0;
 
 // ------------------------------------------------------------
-// 辅助函数
+// 音频时钟（基于已播放样本数）
 // ------------------------------------------------------------
-std::string SelectFileDialog() {
-    char szFile[260] = { 0 };
-    OPENFILENAMEA ofn = { sizeof(ofn) };
-    ofn.lpstrFile = szFile;
-    ofn.nMaxFile = sizeof(szFile);
-    ofn.lpstrFilter = "Media Files\0*.mp4;*.mkv;*.avi;*.flv;*.mov;*.mp3;*.flac;*.wav;*.m4a;*.ogg\0All Files\0*.*\0";
-    ofn.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST | OFN_NOCHANGEDIR;
-    if (GetOpenFileNameA(&ofn)) return std::string(szFile);
-    return "";
-}
-
-std::string AnsiToUtf8(const std::string& ansiStr) {
-    if (ansiStr.empty()) return "";
-    int nwLen = MultiByteToWideChar(CP_ACP, 0, ansiStr.c_str(), -1, NULL, 0);
-    std::vector<wchar_t> wbuf(nwLen);
-    MultiByteToWideChar(CP_ACP, 0, ansiStr.c_str(), -1, wbuf.data(), nwLen);
-    int nLen = WideCharToMultiByte(CP_UTF8, 0, wbuf.data(), -1, NULL, 0, NULL, NULL);
-    std::vector<char> buf(nLen);
-    WideCharToMultiByte(CP_UTF8, 0, wbuf.data(), -1, buf.data(), nLen, NULL, NULL);
-    return std::string(buf.data());
-}
-
 double get_audio_clock() {
-    if (audio_dev == 0 || audio_samplerate == 0) return 0.0;
-    int64_t pushed = audio_samples_pushed.load();
-    Uint32 queued_bytes = SDL_GetQueuedAudioSize(audio_dev);
-    int64_t played = pushed - (queued_bytes / (2 * audio_channels));
-    return (double)(played > 0 ? played : 0) / audio_samplerate;
-}
-
-double get_frame_pts(AVFrame* frame, AVStream* stream) {
-    if (!frame || !stream) return 0.0;
-    int64_t pts = frame->pts;
-    if (pts == AV_NOPTS_VALUE)
-        pts = frame->best_effort_timestamp;
-    if (pts == AV_NOPTS_VALUE)
-        return 0.0;
-    if (stream->start_time != AV_NOPTS_VALUE)
-        pts -= stream->start_time;
-    return pts * av_q2d(stream->time_base);
+    return ::get_audio_clock(audio_samples_pushed.load(), audio_dev, audio_samplerate, audio_channels);
 }
 
 void demux_thread_func() {
+    // 设置线程优先级为高于正常
+    SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_ABOVE_NORMAL);
+    
     AVPacket* pkt = av_packet_alloc();
     while (!quit) {
         if (av_read_frame(fmt_ctx, pkt) < 0) break;
@@ -214,6 +91,13 @@ void audio_decoder_thread_func() {
     // 增大输出缓冲区，避免重采样溢出
     uint8_t* out_buf = (uint8_t*)av_malloc(192000 * 4 * 2); // 两倍空间
 
+    if (!frame || !out_buf) {
+        std::cerr << "Failed to allocate audio frame or buffer." << std::endl;
+        if (frame) av_frame_free(&frame);
+        if (out_buf) av_free(out_buf);
+        return;
+    }
+
     SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_HIGHEST);
 
     while (audio_packet_queue.pop(pkt) && pkt) {
@@ -221,11 +105,24 @@ void audio_decoder_thread_func() {
             while (avcodec_receive_frame(audio_codec_ctx, frame) == 0) {
                 int out_samples = swr_convert(swr_ctx, &out_buf, 192000 * 2, (const uint8_t**)frame->data, frame->nb_samples);
                 if (out_samples > 0) {
-                    while (!quit && SDL_GetQueuedAudioSize(audio_dev) > audio_samplerate * 2.0) {
+                    // 动态调整SDL队列大小，根据采样率和声道数计算
+                    // 保持队列中最多有0.5秒的数据，避免过度堆积
+                    const double max_queue_seconds = 0.5;
+                    const int max_queued_bytes = static_cast<int>(audio_samplerate * audio_channels * 2 * max_queue_seconds);
+                    
+                    // 等待队列空间，使用更短的延迟以提高响应性
+                    int wait_count = 0;
+                    const int max_wait_count = 200; // 最多等待1秒
+                    while (!quit && SDL_GetQueuedAudioSize(audio_dev) > max_queued_bytes && wait_count < max_wait_count) {
                         SDL_Delay(5); // 延迟更短，提高响应
+                        wait_count++;
                     }
-                    SDL_QueueAudio(audio_dev, out_buf, out_samples * 4);
-                    audio_samples_pushed += out_samples;
+                    
+                    // 只有在队列有足够空间时才推送数据
+                    if (!quit && wait_count < max_wait_count) {
+                        SDL_QueueAudio(audio_dev, out_buf, out_samples * 4);
+                        audio_samples_pushed += out_samples;
+                    }
                 }
                 av_frame_unref(frame);
             }
@@ -237,10 +134,21 @@ void audio_decoder_thread_func() {
 }
 
 void video_decoder_thread_func() {
+    // 设置线程优先级为高于正常，确保视频解码的流畅性
+    SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_ABOVE_NORMAL);
+    
     AVPacket* pkt = nullptr;
     AVFrame* frame = av_frame_alloc();
     AVFrame* sw_frame = av_frame_alloc();
     AVFrame* filt_frame = av_frame_alloc();
+
+    if (!frame || !sw_frame || !filt_frame) {
+        std::cerr << "Failed to allocate video frames." << std::endl;
+        if (frame) av_frame_free(&frame);
+        if (sw_frame) av_frame_free(&sw_frame);
+        if (filt_frame) av_frame_free(&filt_frame);
+        return;
+    }
 
     while (video_packet_queue.pop(pkt) && pkt) {
         if (avcodec_send_packet(video_codec_ctx, pkt) == 0) {
@@ -257,26 +165,36 @@ void video_decoder_thread_func() {
                     if (av_buffersrc_add_frame_flags(buffersrc_ctx, process_frame, AV_BUFFERSRC_FLAG_KEEP_REF) >= 0) {
                         while (av_buffersink_get_frame(buffersink_ctx, filt_frame) >= 0) {
                             double pts_sec = get_frame_pts(filt_frame, video_stream);
-                            video_frame_queue.push({av_frame_clone(filt_frame), pts_sec});
+                            AVFrame* cloned_frame = av_frame_clone(filt_frame);
+                            if (cloned_frame) {
+                                video_frame_queue.push({cloned_frame, pts_sec});
+                            }
                             av_frame_unref(filt_frame);
                         }
                     }
                 } else {
                     AVFrame* out_frame = av_frame_alloc();
-                    out_frame->format = AV_PIX_FMT_YUV420P;
-                    out_frame->width = video_codec_ctx->width;
-                    out_frame->height = video_codec_ctx->height;
-                    av_frame_get_buffer(out_frame, 0);
-                    sws_scale(sws_ctx, process_frame->data, process_frame->linesize, 0, video_codec_ctx->height, out_frame->data, out_frame->linesize);
-                    double pts_sec = get_frame_pts(process_frame, video_stream);
-                    video_frame_queue.push({out_frame, pts_sec});
+                    if (out_frame) {
+                        out_frame->format = AV_PIX_FMT_YUV420P;
+                        out_frame->width = video_codec_ctx->width;
+                        out_frame->height = video_codec_ctx->height;
+                        if (av_frame_get_buffer(out_frame, 0) >= 0) {
+                            sws_scale(sws_ctx, process_frame->data, process_frame->linesize, 0, video_codec_ctx->height, out_frame->data, out_frame->linesize);
+                            double pts_sec = get_frame_pts(process_frame, video_stream);
+                            video_frame_queue.push({out_frame, pts_sec});
+                        } else {
+                            av_frame_free(&out_frame);
+                        }
+                    }
                 }
                 av_frame_unref(frame);
             }
         }
         av_packet_free(&pkt);
     }
-    av_frame_free(&frame); av_frame_free(&sw_frame); av_frame_free(&filt_frame);
+    av_frame_free(&frame);
+    av_frame_free(&sw_frame);
+    av_frame_free(&filt_frame);
 }
 
 // ------------------------------------------------------------
@@ -290,8 +208,15 @@ int main(int argc, char* argv[]) {
     if (path.empty()) return 0;
     std::string utf8Path = AnsiToUtf8(path);
 
-    if (avformat_open_input(&fmt_ctx, utf8Path.c_str(), nullptr, nullptr) != 0) return -1;
-    avformat_find_stream_info(fmt_ctx, nullptr);
+    if (avformat_open_input(&fmt_ctx, utf8Path.c_str(), nullptr, nullptr) != 0) {
+        std::cerr << "Could not open file." << std::endl;
+        return -1;
+    }
+    if (avformat_find_stream_info(fmt_ctx, nullptr) < 0) {
+        std::cerr << "Could not find stream info." << std::endl;
+        avformat_close_input(&fmt_ctx);
+        return -1;
+    }
 
     for (int i = 0; i < (int)fmt_ctx->nb_streams; i++) {
         if (fmt_ctx->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_AUDIO && audio_stream_idx == -1) audio_stream_idx = i;
@@ -306,10 +231,22 @@ int main(int argc, char* argv[]) {
         const AVCodec* a_codec = avcodec_find_decoder(audio_stream->codecpar->codec_id);
         audio_codec_ctx = avcodec_alloc_context3(a_codec);
         avcodec_parameters_to_context(audio_codec_ctx, audio_stream->codecpar);
-        avcodec_open2(audio_codec_ctx, a_codec, nullptr);
+        if (avcodec_open2(audio_codec_ctx, a_codec, nullptr) < 0) {
+            std::cerr << "Failed to open audio codec." << std::endl;
+            avcodec_free_context(&audio_codec_ctx);
+            avformat_close_input(&fmt_ctx);
+            return -1;
+        }
         AVChannelLayout out_ch = AV_CHANNEL_LAYOUT_STEREO;
         swr_alloc_set_opts2(&swr_ctx, &out_ch, audio_out_fmt, audio_codec_ctx->sample_rate, &audio_codec_ctx->ch_layout, audio_codec_ctx->sample_fmt, audio_codec_ctx->sample_rate, 0, nullptr);
-        swr_init(swr_ctx); audio_samplerate = audio_codec_ctx->sample_rate;
+        if (swr_init(swr_ctx) < 0) {
+            std::cerr << "Failed to initialize audio resampler." << std::endl;
+            swr_free(&swr_ctx);
+            avcodec_free_context(&audio_codec_ctx);
+            avformat_close_input(&fmt_ctx);
+            return -1;
+        }
+        audio_samplerate = audio_codec_ctx->sample_rate;
     }
 
     // 视频流处理 + 硬件加速
@@ -318,20 +255,53 @@ int main(int argc, char* argv[]) {
         const AVCodec* v_codec = avcodec_find_decoder(video_stream->codecpar->codec_id);
         video_codec_ctx = avcodec_alloc_context3(v_codec);
         avcodec_parameters_to_context(video_codec_ctx, video_stream->codecpar);
-
+        
+        // 优化解码性能
+        video_codec_ctx->thread_count = std::thread::hardware_concurrency();
+        video_codec_ctx->thread_type = FF_THREAD_FRAME;
+        
+        // 尝试硬件加速 - 优先使用D3D11，然后是DXVA2
+        AVHWDeviceType hw_type = AV_HWDEVICE_TYPE_NONE;
         for (int i = 0;; i++) {
             const AVCodecHWConfig* config = avcodec_get_hw_config(v_codec, i);
             if (!config) break;
-            if (config->methods & AV_CODEC_HW_CONFIG_METHOD_HW_DEVICE_CTX && config->device_type == AV_HWDEVICE_TYPE_DXVA2) {
-                hw_pix_fmt = config->pix_fmt;
-                break;
+            if (config->methods & AV_CODEC_HW_CONFIG_METHOD_HW_DEVICE_CTX) {
+                if (config->device_type == AV_HWDEVICE_TYPE_D3D11VA) {
+                    hw_type = AV_HWDEVICE_TYPE_D3D11VA;
+                    hw_pix_fmt = config->pix_fmt;
+                    break;
+                } else if (config->device_type == AV_HWDEVICE_TYPE_DXVA2 && hw_type == AV_HWDEVICE_TYPE_NONE) {
+                    hw_type = AV_HWDEVICE_TYPE_DXVA2;
+                    hw_pix_fmt = config->pix_fmt;
+                }
             }
         }
+        
         if (hw_pix_fmt != AV_PIX_FMT_NONE) {
-            av_hwdevice_ctx_create(&hw_device_ctx, AV_HWDEVICE_TYPE_DXVA2, nullptr, nullptr, 0);
-            video_codec_ctx->hw_device_ctx = av_buffer_ref(hw_device_ctx);
+            if (av_hwdevice_ctx_create(&hw_device_ctx, hw_type, nullptr, nullptr, 0) < 0) {
+                std::cerr << "Failed to create hardware device context." << std::endl;
+                hw_pix_fmt = AV_PIX_FMT_NONE;
+            } else {
+                video_codec_ctx->hw_device_ctx = av_buffer_ref(hw_device_ctx);
+                if (hw_type == AV_HWDEVICE_TYPE_D3D11VA) {
+                    std::cout << "Hardware acceleration enabled: D3D11VA" << std::endl;
+                } else if (hw_type == AV_HWDEVICE_TYPE_DXVA2) {
+                    std::cout << "Hardware acceleration enabled: DXVA2" << std::endl;
+                }
+            }
+        } else {
+            std::cout << "Hardware acceleration not available, using software decoding." << std::endl;
         }
-        avcodec_open2(video_codec_ctx, v_codec, nullptr);
+        
+        if (avcodec_open2(video_codec_ctx, v_codec, nullptr) < 0) {
+            std::cerr << "Failed to open video codec." << std::endl;
+            if (hw_device_ctx) av_buffer_unref(&hw_device_ctx);
+            avcodec_free_context(&video_codec_ctx);
+            if (audio_codec_ctx) avcodec_free_context(&audio_codec_ctx);
+            if (swr_ctx) swr_free(&swr_ctx);
+            avformat_close_input(&fmt_ctx);
+            return -1;
+        }
 
         // 获取旋转并配置滤镜
         double theta = 0.0;
@@ -384,7 +354,17 @@ int main(int argc, char* argv[]) {
     }
 
     // 窗口自适应初始化
-	if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_TIMER) < 0) return -1;
+	if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_TIMER) < 0) {
+		std::cerr << "SDL init failed: " << SDL_GetError() << std::endl;
+		if (hw_device_ctx) av_buffer_unref(&hw_device_ctx);
+		if (swr_ctx) swr_free(&swr_ctx);
+		if (sws_ctx) sws_freeContext(sws_ctx);
+		if (filter_graph) avfilter_graph_free(&filter_graph);
+		if (audio_codec_ctx) avcodec_free_context(&audio_codec_ctx);
+		if (video_codec_ctx) avcodec_free_context(&video_codec_ctx);
+		avformat_close_input(&fmt_ctx);
+		return -1;
+	}
 
 	// 计算初始窗口大小（不超过屏幕90%）
     int window_w = video_width, window_h = video_height;
@@ -405,15 +385,69 @@ int main(int argc, char* argv[]) {
                               SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, 
                               window_w, window_h, 
                               SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE);
+    if (!window) {
+        std::cerr << "SDL_CreateWindow failed: " << SDL_GetError() << std::endl;
+        if (hw_device_ctx) av_buffer_unref(&hw_device_ctx);
+        if (swr_ctx) swr_free(&swr_ctx);
+        if (sws_ctx) sws_freeContext(sws_ctx);
+        if (filter_graph) avfilter_graph_free(&filter_graph);
+        if (audio_codec_ctx) avcodec_free_context(&audio_codec_ctx);
+        if (video_codec_ctx) avcodec_free_context(&video_codec_ctx);
+        avformat_close_input(&fmt_ctx);
+        SDL_Quit();
+        return -1;
+    }
     
     renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
+    if (!renderer) {
+        std::cerr << "SDL_CreateRenderer failed: " << SDL_GetError() << std::endl;
+        SDL_DestroyWindow(window);
+        if (hw_device_ctx) av_buffer_unref(&hw_device_ctx);
+        if (swr_ctx) swr_free(&swr_ctx);
+        if (sws_ctx) sws_freeContext(sws_ctx);
+        if (filter_graph) avfilter_graph_free(&filter_graph);
+        if (audio_codec_ctx) avcodec_free_context(&audio_codec_ctx);
+        if (video_codec_ctx) avcodec_free_context(&video_codec_ctx);
+        avformat_close_input(&fmt_ctx);
+        SDL_Quit();
+        return -1;
+    }
 
     texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_IYUV, SDL_TEXTUREACCESS_STREAMING, video_width, video_height);
+    if (!texture) {
+        std::cerr << "SDL_CreateTexture failed: " << SDL_GetError() << std::endl;
+        SDL_DestroyRenderer(renderer);
+        SDL_DestroyWindow(window);
+        if (hw_device_ctx) av_buffer_unref(&hw_device_ctx);
+        if (swr_ctx) swr_free(&swr_ctx);
+        if (sws_ctx) sws_freeContext(sws_ctx);
+        if (filter_graph) avfilter_graph_free(&filter_graph);
+        if (audio_codec_ctx) avcodec_free_context(&audio_codec_ctx);
+        if (video_codec_ctx) avcodec_free_context(&video_codec_ctx);
+        avformat_close_input(&fmt_ctx);
+        SDL_Quit();
+        return -1;
+    }
 
     // 音频设备初始化（保持不变）
     if (audio_stream_idx != -1) {
         SDL_AudioSpec spec = { audio_samplerate, AUDIO_S16SYS, (Uint8)audio_channels, 0, 4096 };
         audio_dev = SDL_OpenAudioDevice(nullptr, 0, &spec, nullptr, 0);
+        if (audio_dev == 0) {
+            std::cerr << "SDL_OpenAudioDevice failed: " << SDL_GetError() << std::endl;
+            SDL_DestroyTexture(texture);
+            SDL_DestroyRenderer(renderer);
+            SDL_DestroyWindow(window);
+            if (hw_device_ctx) av_buffer_unref(&hw_device_ctx);
+            if (swr_ctx) swr_free(&swr_ctx);
+            if (sws_ctx) sws_freeContext(sws_ctx);
+            if (filter_graph) avfilter_graph_free(&filter_graph);
+            if (audio_codec_ctx) avcodec_free_context(&audio_codec_ctx);
+            if (video_codec_ctx) avcodec_free_context(&video_codec_ctx);
+            avformat_close_input(&fmt_ctx);
+            SDL_Quit();
+            return -1;
+        }
         SDL_PauseAudioDevice(audio_dev, 0);
     }
 
@@ -544,11 +578,17 @@ int main(int argc, char* argv[]) {
 		// 进度条更新（每秒更新一次）
 		if (av_gettime() - last_update > 1000000) {
 			double current_time = get_audio_clock();
+			// 确保当前时间不超过总时长
+			if (current_time > total_duration_sec) {
+				current_time = total_duration_sec;
+			}
 			int minutes = (int)current_time / 60;
 			int seconds = (int)current_time % 60;
+			int total_minutes = (int)total_duration_sec / 60;
+			int total_seconds = (int)total_duration_sec % 60;
 			
 			// 使用 printf
-			printf("\rTime: %02d:%02d", minutes, seconds);
+			printf("\rTime: %02d:%02d / %02d:%02d", minutes, seconds, total_minutes, total_seconds);
 			fflush(stdout);
 			
 			last_update = av_gettime();
@@ -557,17 +597,36 @@ int main(int argc, char* argv[]) {
 		// 退出条件检查
 		if (audio_stream_idx != -1) {
 			// 检查是否播放完毕
-			if (audio_packet_queue.empty() && SDL_GetQueuedAudioSize(audio_dev) == 0) {
-				if (av_gettime() - last_audio_check > 2000000) { // 2秒无音频后退出
-					quit = true;
+			if (audio_packet_queue.empty() && video_packet_queue.empty() && video_frame_queue.empty() && SDL_GetQueuedAudioSize(audio_dev) == 0) {
+				// 最后一次更新进度条，确保显示完整时间
+				double final_audio_clock = get_audio_clock();
+				if (final_audio_clock > total_duration_sec) {
+					final_audio_clock = total_duration_sec;
 				}
+				int minutes = (int)final_audio_clock / 60;
+				int seconds = (int)final_audio_clock % 60;
+				int total_minutes = (int)total_duration_sec / 60;
+				int total_seconds = (int)total_duration_sec % 60;
+				printf("\rTime: %02d:%02d / %02d:%02d", minutes, seconds, total_minutes, total_seconds);
+				fflush(stdout);
+				printf("\n");
+				quit = true;
 			} else {
 				last_audio_check = av_gettime();
 			}
 		} else {
-			// 没有音频流，延迟后退出
-			SDL_Delay(100);
-			quit = true;
+			// 没有音频流，检查视频队列
+			if (video_packet_queue.empty() && video_frame_queue.empty()) {
+				// 最后一次更新进度条，确保显示完整时间
+				int total_minutes = (int)total_duration_sec / 60;
+				int total_seconds = (int)total_duration_sec % 60;
+				printf("\rTime: %02d:%02d / %02d:%02d", total_minutes, total_seconds, total_minutes, total_seconds);
+				fflush(stdout);
+				printf("\n");
+				quit = true;
+			} else {
+				SDL_Delay(10);
+			}
 		}
 	}
 

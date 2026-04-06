@@ -10,98 +10,7 @@
 #include <iomanip>
 #include <algorithm>
 
-#include <windows.h>
-#include <commdlg.h>
-
-extern "C" {
-    #include <libavformat/avformat.h>
-    #include <libavcodec/avcodec.h>
-    #include <libavutil/avutil.h>
-    #include <libavutil/time.h>
-    #include <libavutil/channel_layout.h>
-    #include <libavutil/imgutils.h>
-    #include <libavutil/frame.h>
-    #include <libavutil/display.h>
-    #include <libswresample/swresample.h>
-    #include <libswscale/swscale.h>
-
-    // 滤镜相关头文件
-    #include <libavfilter/avfilter.h>
-    #include <libavfilter/buffersink.h>
-    #include <libavfilter/buffersrc.h>
-    #include <libavutil/opt.h>
-
-    #include <SDL.h>
-}
-
-// ------------------------------------------------------------
-// 线程安全队列模板（支持最大容量和阻塞推入）
-// ------------------------------------------------------------
-template<typename T>
-class SafeQueue {
-public:
-    explicit SafeQueue(size_t max_size = 0) : m_max_size(max_size), m_abort(false) {}
-
-    bool push(T value) {
-        std::unique_lock<std::mutex> lock(m_mutex);
-        if (m_max_size > 0) {
-            m_cond_push.wait(lock, [this] {
-                return m_queue.size() < m_max_size || m_abort;
-            });
-            if (m_abort) return false;
-        }
-        m_queue.push(std::move(value));
-        m_cond_pop.notify_one();
-        return true;
-    }
-
-    bool pop(T& value, bool block = true) {
-        std::unique_lock<std::mutex> lock(m_mutex);
-        if (block) {
-            m_cond_pop.wait(lock, [this] { return !m_queue.empty() || m_abort; });
-            if (m_abort) return false;
-        } else {
-            if (m_queue.empty()) return false;
-        }
-        value = std::move(m_queue.front());
-        m_queue.pop();
-        if (m_max_size > 0) m_cond_push.notify_one();
-        return true;
-    }
-
-    void abort() {
-        std::lock_guard<std::mutex> lock(m_mutex);
-        m_abort = true;
-        m_cond_pop.notify_all();
-        m_cond_push.notify_all();
-    }
-
-    size_t size() {
-        std::lock_guard<std::mutex> lock(m_mutex);
-        return m_queue.size();
-    }
-
-    bool empty() {
-        std::lock_guard<std::mutex> lock(m_mutex);
-        return m_queue.empty();
-    }
-
-private:
-    std::queue<T> m_queue;
-    std::mutex m_mutex;
-    std::condition_variable m_cond_pop;
-    std::condition_variable m_cond_push;
-    size_t m_max_size;
-    bool m_abort;
-};
-
-// ------------------------------------------------------------
-// 视频帧数据结构
-// ------------------------------------------------------------
-struct VideoFrame {
-    AVFrame* frame = nullptr;
-    double pts = 0.0;
-};
+#include "common.h"
 
 // ------------------------------------------------------------
 // 全局变量
@@ -136,9 +45,9 @@ SDL_Texture* texture = nullptr;
 SDL_AudioDeviceID audio_dev = 0;
 
 // 队列（设置最大容量）
-SafeQueue<AVPacket*> audio_packet_queue(100);
-SafeQueue<AVPacket*> video_packet_queue(50);
-SafeQueue<VideoFrame> video_frame_queue(10);
+SafeQueue<AVPacket*> audio_packet_queue(DEFAULT_AUDIO_QUEUE_SIZE);
+SafeQueue<AVPacket*> video_packet_queue(DEFAULT_VIDEO_QUEUE_SIZE);
+SafeQueue<VideoFrame> video_frame_queue(DEFAULT_FRAME_QUEUE_SIZE);
 
 std::atomic<int64_t> audio_samples_pushed(0);
 std::atomic<bool> quit(false);
@@ -151,53 +60,19 @@ std::thread video_dec_thread;
 int64_t total_duration_sec = 0;
 
 // ------------------------------------------------------------
-// 辅助函数：文件选择
-// ------------------------------------------------------------
-std::string SelectFileDialog() {
-    char szFile[260] = { 0 };
-    OPENFILENAMEA ofn = { sizeof(ofn) };
-    ofn.lpstrFile = szFile;
-    ofn.nMaxFile = sizeof(szFile);
-    ofn.lpstrFilter = "Media Files\0*.mp4;*.mkv;*.avi;*.flv;*.mov;*.mp3;*.flac;*.wav;*.m4a;*.ogg\0All Files\0*.*\0";
-    ofn.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST | OFN_NOCHANGEDIR;
-    if (GetOpenFileNameA(&ofn))
-        return std::string(szFile);
-    return "";
-}
-
-std::string AnsiToUtf8(const std::string& ansiStr) {
-    if (ansiStr.empty()) return "";
-    int nwLen = MultiByteToWideChar(CP_ACP, 0, ansiStr.c_str(), -1, NULL, 0);
-    wchar_t* pwBuf = new wchar_t[nwLen];
-    MultiByteToWideChar(CP_ACP, 0, ansiStr.c_str(), -1, pwBuf, nwLen);
-    int nLen = WideCharToMultiByte(CP_UTF8, 0, pwBuf, -1, NULL, 0, NULL, NULL);
-    char* pBuf = new char[nLen];
-    WideCharToMultiByte(CP_UTF8, 0, pwBuf, -1, pBuf, nLen, NULL, NULL);
-    std::string retStr(pBuf);
-    delete[] pwBuf; delete[] pBuf;
-    return retStr;
-}
-
-// ------------------------------------------------------------
 // 音频时钟（基于已播放样本数）
 // ------------------------------------------------------------
 double get_audio_clock() {
-    if (audio_dev == 0 || audio_samplerate == 0) {
-        static int64_t start_time = av_gettime();
-        return (av_gettime() - start_time) / 1000000.0;
-    }
-    int64_t pushed = audio_samples_pushed.load(std::memory_order_relaxed);
-    Uint32 queued_bytes = SDL_GetQueuedAudioSize(audio_dev);
-    int queued_samples = queued_bytes / (2 * audio_channels); // 16位立体声：每样本2字节 * 2声道 = 4字节/立体声帧
-    int64_t played = pushed - queued_samples;
-    if (played < 0) played = 0;
-    return static_cast<double>(played) / audio_samplerate;
+    return ::get_audio_clock(audio_samples_pushed.load(std::memory_order_relaxed), audio_dev, audio_samplerate, audio_channels);
 }
 
 // ------------------------------------------------------------
 // 解复用线程：读取数据包并分发到音频/视频队列
 // ------------------------------------------------------------
 void demux_thread_func() {
+    // 设置线程优先级为高于正常
+    SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_ABOVE_NORMAL);
+    
     AVPacket* pkt = av_packet_alloc();
     while (!quit) {
         int ret = av_read_frame(fmt_ctx, pkt);
@@ -232,9 +107,18 @@ void demux_thread_func() {
 // 音频解码线程：解码音频并直接推送到 SDL 队列
 // ------------------------------------------------------------
 void audio_decoder_thread_func() {
+    // 设置线程优先级为最高，确保音频播放的实时性
+    SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_HIGHEST);
+    
     AVPacket* pkt = nullptr;
     AVFrame* frame = av_frame_alloc();
     uint8_t* out_buf = (uint8_t*)av_malloc(192000 * 4); // 足够容纳重采样后的数据
+
+    if (!out_buf) {
+        std::cerr << "Failed to allocate audio output buffer." << std::endl;
+        av_frame_free(&frame);
+        return;
+    }
 
     while (!quit) {
         if (!audio_packet_queue.pop(pkt)) break; // 队列被终止
@@ -246,13 +130,24 @@ void audio_decoder_thread_func() {
                                                (const uint8_t**)frame->data, frame->nb_samples);
                 if (out_samples > 0) {
                     int bytes = out_samples * 4; // S16立体声
-                    // 控制 SDL 队列大小，避免堆积过多（不超过1秒数据）
-                    const int max_queued_bytes = audio_samplerate * 4 * 1.0;
-                    while (!quit && SDL_GetQueuedAudioSize(audio_dev) > max_queued_bytes) {
+                    // 动态调整SDL队列大小，根据采样率和声道数计算
+                    // 保持队列中最多有0.5秒的数据，避免过度堆积
+                    const double max_queue_seconds = 0.5;
+                    const int max_queued_bytes = static_cast<int>(audio_samplerate * audio_channels * 2 * max_queue_seconds);
+                    
+                    // 等待队列空间，使用更短的延迟以提高响应性
+                    int wait_count = 0;
+                    const int max_wait_count = 100; // 最多等待1秒
+                    while (!quit && SDL_GetQueuedAudioSize(audio_dev) > max_queued_bytes && wait_count < max_wait_count) {
                         SDL_Delay(10);
+                        wait_count++;
                     }
-                    SDL_QueueAudio(audio_dev, out_buf, bytes);
-                    audio_samples_pushed.fetch_add(out_samples, std::memory_order_relaxed);
+                    
+                    // 只有在队列有足够空间时才推送数据
+                    if (!quit && wait_count < max_wait_count) {
+                        SDL_QueueAudio(audio_dev, out_buf, bytes);
+                        audio_samples_pushed.fetch_add(out_samples, std::memory_order_relaxed);
+                    }
                 }
                 av_frame_unref(frame);
             }
@@ -268,6 +163,9 @@ void audio_decoder_thread_func() {
 // 视频解码线程：支持滤镜旋转，并在滤镜不可用时回退到直接转换
 // ------------------------------------------------------------
 void video_decoder_thread_func() {
+    // 设置线程优先级为高于正常，确保视频解码的流畅性
+    SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_ABOVE_NORMAL);
+    
     AVPacket* pkt = nullptr;
     AVFrame* frame = av_frame_alloc();
     AVFrame* filt_frame = av_frame_alloc(); // 滤镜输出帧（仅当滤镜启用时使用）
@@ -357,7 +255,11 @@ int main(int argc, char* argv[]) {
         std::cerr << "Could not open file." << std::endl;
         return -1;
     }
-    if (avformat_find_stream_info(fmt_ctx, nullptr) < 0) return -1;
+    if (avformat_find_stream_info(fmt_ctx, nullptr) < 0) {
+        std::cerr << "Could not find stream info." << std::endl;
+        avformat_close_input(&fmt_ctx);
+        return -1;
+    }
 
     // 查找音视频流
     audio_stream_idx = -1;
@@ -389,6 +291,8 @@ int main(int argc, char* argv[]) {
         avcodec_parameters_to_context(audio_codec_ctx, audio_stream->codecpar);
         if (avcodec_open2(audio_codec_ctx, audio_codec, nullptr) < 0) {
             std::cerr << "Failed to open audio codec." << std::endl;
+            avcodec_free_context(&audio_codec_ctx);
+            avformat_close_input(&fmt_ctx);
             return -1;
         }
 
@@ -399,6 +303,9 @@ int main(int argc, char* argv[]) {
                             0, nullptr);
         if (swr_init(swr_ctx) < 0) {
             std::cerr << "Failed to initialize audio resampler." << std::endl;
+            swr_free(&swr_ctx);
+            avcodec_free_context(&audio_codec_ctx);
+            avformat_close_input(&fmt_ctx);
             return -1;
         }
         audio_samplerate = audio_codec_ctx->sample_rate;
@@ -410,10 +317,20 @@ int main(int argc, char* argv[]) {
         const AVCodec* video_codec = avcodec_find_decoder(video_stream->codecpar->codec_id);
         video_codec_ctx = avcodec_alloc_context3(video_codec);
         avcodec_parameters_to_context(video_codec_ctx, video_stream->codecpar);
+        // 优化解码性能
         video_codec_ctx->thread_count = std::thread::hardware_concurrency();
         video_codec_ctx->thread_type = FF_THREAD_FRAME;
+        // 启用快速解码选项
+        video_codec_ctx->lowres = 0; // 不使用低分辨率解码
+        video_codec_ctx->skip_loop_filter = AVDISCARD_NONE; // 不跳过环路滤波
+        video_codec_ctx->skip_idct = AVDISCARD_NONE; // 不跳过IDCT
+        video_codec_ctx->skip_frame = AVDISCARD_NONE; // 不跳帧
         if (avcodec_open2(video_codec_ctx, video_codec, nullptr) < 0) {
             std::cerr << "Failed to open video codec." << std::endl;
+            avcodec_free_context(&video_codec_ctx);
+            if (audio_codec_ctx) avcodec_free_context(&audio_codec_ctx);
+            if (swr_ctx) swr_free(&swr_ctx);
+            avformat_close_input(&fmt_ctx);
             return -1;
         }
 
@@ -550,6 +467,12 @@ int main(int argc, char* argv[]) {
     if (video_stream_idx != -1) sdl_init_flags |= SDL_INIT_VIDEO;
     if (SDL_Init(sdl_init_flags) < 0) {
         std::cerr << "SDL init failed: " << SDL_GetError() << std::endl;
+        if (swr_ctx) swr_free(&swr_ctx);
+        if (sws_ctx) sws_freeContext(sws_ctx);
+        if (filter_graph) avfilter_graph_free(&filter_graph);
+        if (audio_codec_ctx) avcodec_free_context(&audio_codec_ctx);
+        if (video_codec_ctx) avcodec_free_context(&video_codec_ctx);
+        avformat_close_input(&fmt_ctx);
         return -1;
     }
 
@@ -577,11 +500,26 @@ int main(int argc, char* argv[]) {
                                   SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE);
         if (!window) {
             std::cerr << "SDL_CreateWindow failed: " << SDL_GetError() << std::endl;
+            if (swr_ctx) swr_free(&swr_ctx);
+            if (sws_ctx) sws_freeContext(sws_ctx);
+            if (filter_graph) avfilter_graph_free(&filter_graph);
+            if (audio_codec_ctx) avcodec_free_context(&audio_codec_ctx);
+            if (video_codec_ctx) avcodec_free_context(&video_codec_ctx);
+            avformat_close_input(&fmt_ctx);
+            SDL_Quit();
             return -1;
         }
         renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
         if (!renderer) {
             std::cerr << "SDL_CreateRenderer failed: " << SDL_GetError() << std::endl;
+            SDL_DestroyWindow(window);
+            if (swr_ctx) swr_free(&swr_ctx);
+            if (sws_ctx) sws_freeContext(sws_ctx);
+            if (filter_graph) avfilter_graph_free(&filter_graph);
+            if (audio_codec_ctx) avcodec_free_context(&audio_codec_ctx);
+            if (video_codec_ctx) avcodec_free_context(&video_codec_ctx);
+            avformat_close_input(&fmt_ctx);
+            SDL_Quit();
             return -1;
         }
         // 纹理尺寸必须与最终输出一致
@@ -589,6 +527,15 @@ int main(int argc, char* argv[]) {
                                     video_width, video_height);
         if (!texture) {
             std::cerr << "SDL_CreateTexture failed: " << SDL_GetError() << std::endl;
+            SDL_DestroyRenderer(renderer);
+            SDL_DestroyWindow(window);
+            if (swr_ctx) swr_free(&swr_ctx);
+            if (sws_ctx) sws_freeContext(sws_ctx);
+            if (filter_graph) avfilter_graph_free(&filter_graph);
+            if (audio_codec_ctx) avcodec_free_context(&audio_codec_ctx);
+            if (video_codec_ctx) avcodec_free_context(&video_codec_ctx);
+            avformat_close_input(&fmt_ctx);
+            SDL_Quit();
             return -1;
         }
     }
@@ -606,6 +553,16 @@ int main(int argc, char* argv[]) {
         audio_dev = SDL_OpenAudioDevice(nullptr, 0, &desired, &obtained, 0);
         if (audio_dev == 0) {
             std::cerr << "SDL_OpenAudioDevice failed: " << SDL_GetError() << std::endl;
+            if (texture) SDL_DestroyTexture(texture);
+            if (renderer) SDL_DestroyRenderer(renderer);
+            if (window) SDL_DestroyWindow(window);
+            if (swr_ctx) swr_free(&swr_ctx);
+            if (sws_ctx) sws_freeContext(sws_ctx);
+            if (filter_graph) avfilter_graph_free(&filter_graph);
+            if (audio_codec_ctx) avcodec_free_context(&audio_codec_ctx);
+            if (video_codec_ctx) avcodec_free_context(&video_codec_ctx);
+            avformat_close_input(&fmt_ctx);
+            SDL_Quit();
             return -1;
         }
         SDL_PauseAudioDevice(audio_dev, 0);
@@ -676,24 +633,34 @@ int main(int argc, char* argv[]) {
                     }
                 }
 
-                // 更新纹理
+                // 更新纹理 - 使用SDL的硬件加速纹理更新
                 SDL_UpdateYUVTexture(texture, nullptr,
                                       vf.frame->data[0], vf.frame->linesize[0],
                                       vf.frame->data[1], vf.frame->linesize[1],
                                       vf.frame->data[2], vf.frame->linesize[2]);
 
-                // 获取当前窗口大小
+                // 渲染 - 减少不必要的窗口大小获取和计算
+                static int last_win_w = 0, last_win_h = 0;
+                static SDL_Rect dest_rect;
+                static bool init = false;
+                
+                // 只在窗口大小变化时重新计算目标矩形
                 int cur_win_w, cur_win_h;
                 SDL_GetWindowSize(window, &cur_win_w, &cur_win_h);
-
-                // 计算目标矩形（保持原始宽高比，居中显示）
-                double scale = std::min((double)cur_win_w / video_width,
-                                        (double)cur_win_h / video_height);
-                SDL_Rect dest_rect;
-                dest_rect.w = static_cast<int>(video_width * scale);
-                dest_rect.h = static_cast<int>(video_height * scale);
-                dest_rect.x = (cur_win_w - dest_rect.w) / 2;
-                dest_rect.y = (cur_win_h - dest_rect.h) / 2;
+                
+                if (!init || cur_win_w != last_win_w || cur_win_h != last_win_h) {
+                    // 计算目标矩形（保持原始宽高比，居中显示）
+                    double scale = std::min((double)cur_win_w / video_width,
+                                            (double)cur_win_h / video_height);
+                    dest_rect.w = static_cast<int>(video_width * scale);
+                    dest_rect.h = static_cast<int>(video_height * scale);
+                    dest_rect.x = (cur_win_w - dest_rect.w) / 2;
+                    dest_rect.y = (cur_win_h - dest_rect.h) / 2;
+                    
+                    last_win_w = cur_win_w;
+                    last_win_h = cur_win_h;
+                    init = true;
+                }
 
                 // 渲染
                 SDL_RenderClear(renderer);
@@ -704,6 +671,10 @@ int main(int argc, char* argv[]) {
                 int64_t now = av_gettime();
                 if (now - last_progress_update > 1000000) {
                     int cur_sec = static_cast<int>(audio_clock);
+                    // 确保当前时间不超过总时长
+                    if (cur_sec > total_duration_sec) {
+                        cur_sec = total_duration_sec;
+                    }
                     std::cout << "\rProgress: " << cur_sec / 60 << ":"
                               << std::setfill('0') << std::setw(2) << cur_sec % 60
                               << " / " << total_duration_sec / 60 << ":"
@@ -736,7 +707,21 @@ int main(int argc, char* argv[]) {
 
         // 检查播放结束：所有队列为空且音频播放完
         bool audio_done = (audio_stream_idx == -1) || (SDL_GetQueuedAudioSize(audio_dev) == 0);
-        if (video_frame_queue.empty() && audio_packet_queue.empty() && video_packet_queue.empty() && audio_done) {
+        bool all_queues_empty = video_frame_queue.empty() && audio_packet_queue.empty() && video_packet_queue.empty();
+        
+        // 当所有队列都为空且音频播放完毕时，立即退出
+        if (all_queues_empty && audio_done) {
+            // 最后一次更新进度条，确保显示完整时间
+            double final_audio_clock = get_audio_clock();
+            int cur_sec = static_cast<int>(final_audio_clock);
+            if (cur_sec > total_duration_sec) {
+                cur_sec = total_duration_sec;
+            }
+            std::cout << "\rProgress: " << cur_sec / 60 << ":"
+                      << std::setfill('0') << std::setw(2) << cur_sec % 60
+                      << " / " << total_duration_sec / 60 << ":"
+                      << std::setfill('0') << std::setw(2) << total_duration_sec % 60
+                      << std::flush << std::endl;
             running = false;
         }
     }

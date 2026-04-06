@@ -9,6 +9,7 @@
                 "-fdiagnostics-color=always",
                 "-g",
                 "${file}",
+                "${fileDirname}\\common.cpp",
                 // FFmpeg libraries
                 "-L", 
                 "${fileDirname}\\FFmpeg-n7.0.2-3-win64-lgpl-shared-7.0\\lib",
