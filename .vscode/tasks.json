@@ -11,13 +11,13 @@
                 "${file}",
                 "${fileDirname}\\common.cpp",
                 // FFmpeg libraries
-                "-L", 
+                "-L",
                 "${fileDirname}\\FFmpeg-n7.0.2-3-win64-lgpl-shared-7.0\\lib",
                 "-I",
                 "${fileDirname}\\FFmpeg-n7.0.2-3-win64-lgpl-shared-7.0\\include",
                 "-lavformat", "-lavcodec", "-lavutil", "-lavdevice", "-lswscale", "-lavfilter", "-lswresample",
                 // SDL2 libraries
-                "-L", 
+                "-L",
                 "${fileDirname}\\SDL2-2.30.6\\lib\\x64",
                 "-I",
                 "${fileDirname}\\SDL2-2.30.6\\include",
@@ -35,6 +35,33 @@
                 "kind": "build",
                 "isDefault": true
             }
+        },
+        {
+            "label": "Clean Build Files",
+            "type": "shell",
+            "command": "Remove-Item",
+            "args": [
+                "${fileDirname}\\*.exe",
+                "-ErrorAction", "SilentlyContinue"
+            ],
+            "options": {
+                "cwd": "${fileDirname}"
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "Build and Run",
+            "type": "shell",
+            "command": "powershell",
+            "args": [
+                "-Command",
+                "& { ${env:PATH} = '${fileDirname}\\FFmpeg-n7.0.2-3-win64-lgpl-shared-7.0\\bin;${fileDirname}\\SDL2-2.30.6\\lib\\x64;' + ${env:PATH}; & '${fileDirname}\\${fileBasenameNoExtension}.exe' }"
+            ],
+            "options": {
+                "cwd": "${fileDirname}"
+            },
+            "dependsOn": "C/C++: g++.exe build active file",
+            "problemMatcher": []
         }
     ]
 }

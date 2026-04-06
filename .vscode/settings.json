@@ -63,10 +63,21 @@
         "typeinfo": "cpp",
         "variant": "cpp",
         "cstring": "cpp",
-        "map": "cpp"
+        "map": "cpp",
+        "*.h": "cpp"
     },
     "terminal.integrated.env.windows": {
-        "PATH": "E:\\VS_Code\\PATH\\w64devkit\\bin;${env:PATH}"
+        "PATH": "E:\\VS_Code\\PATH\\w64devkit\\bin;${fileDirname}\\FFmpeg-n7.0.2-3-win64-lgpl-shared-7.0\\bin;${fileDirname}\\SDL2-2.30.6\\lib\\x64;${env:PATH}"
     },
-    "C_Cpp.errorSquiggles": "disabled"
+    "C_Cpp.errorSquiggles": "enabled",
+    "editor.tabSize": 4,
+    "editor.insertSpaces": true,
+    "editor.formatOnSave": false,  // 禁用保存时自动格式化
+    "files.trimTrailingWhitespace": false,  // 禁用行尾空白修剪
+    "files.insertFinalNewline": false,  // 禁用自动添加文件尾换行
+    "search.exclude": {
+        "**/build": true,
+        "**/bin": true,
+        "**/*.exe": true
+    }
 }

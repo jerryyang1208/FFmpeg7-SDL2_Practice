@@ -3,20 +3,16 @@
         {
             "name": "Win32",
             "includePath": [
-                "${workspaceFolder}/**",
-                "${workspaceFolder}/FFmpeg-n7.0.2-3-win64-lgpl-shared-7.0/include/libavcodec",
-                "${workspaceFolder}/FFmpeg-n7.0.2-3-win64-lgpl-shared-7.0/include/libavformat",
-                "${workspaceFolder}/FFmpeg-n7.0.2-3-win64-lgpl-shared-7.0/include/libavutil",
-                "${workspaceFolder}/FFmpeg-n7.0.2-3-win64-lgpl-shared-7.0/include/libavfilter",
-                "${workspaceFolder}/FFmpeg-n7.0.2-3-win64-lgpl-shared-7.0/include/libavdevice",
-                "${workspaceFolder}/FFmpeg-n7.0.2-3-win64-lgpl-shared-7.0/include/libswscale",
-                "${workspaceFolder}/FFmpeg-n7.0.2-3-win64-lgpl-shared-7.0/include/libswresample",
-                "${workspaceFolder}/SDL2-2.30.6/include"
+                "${workspaceFolder}\\**",
+                "${workspaceFolder}\\FFmpeg-n7.0.2-3-win64-lgpl-shared-7.0\\include",
+                "${workspaceFolder}\\SDL2-2.30.6\\include",
+                "E:\\VS_Code\\PATH\\w64devkit\\include"
             ],
             "defines": [
                 "_DEBUG",
                 "UNICODE",
-                "_UNICODE"
+                "_UNICODE",
+                "SDL_MAIN_HANDLED"
             ],
             "compilerPath": "E:\\VS_Code\\PATH\\w64devkit\\bin\\g++.exe",
             "cStandard": "c17",
