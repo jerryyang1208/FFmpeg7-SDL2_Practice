@@ -12,27 +12,27 @@
 
 </div>
 
-A multimedia player practice project based on FFmpeg 7.0.2 and SDL2 2.30.6, containing six independent examples including audio playback, PCM playback, video playback, multi-threaded audio/video synchronized player (Windows/WSL dual versions), and HW hardware-accelerated audio/video player (with/without filter versions).
+A multimedia player practice project based on FFmpeg 7.0.2 and SDL2 2.30.6, focusing on high-performance audio and video playback. The project has been refactored to extract core functionality into common modules, implementing both software and hardware decoding versions of audio and video players that support smooth playback of 4K high-frame-rate videos.
 
-Both software and hardware versions of the audio/video player have basic playback functions and media information display, as well as rotation and scaling adaptation for videos of different resolutions and orientations. To facilitate comparison and understanding, the original hardware-accelerated audio/video player HW.cpp code is retained, which also supports DXVA2 hardware decoding. However, the new version significantly reduces CPU and memory usage, enabling smooth playback of 4K high-frame-rate, extremely high-bitrate videos.
+The project adopts a modular design, extracting common code into common.h and common.cpp to improve code reusability and maintainability. Both software and hardware versions have basic playback functionality, media information display, and rotation and scaling adaptation for videos of different resolutions and orientations.
 
 Blog: https://zhuanlan.zhihu.com/p/700478133
 
 ## 📦 Dependencies
-- **[FFmpeg 7.0.2](https://ffmpeg.org/)** - Core audio/video decoding library
+- **[FFmpeg 7.0.2](https://ffmpeg.org/)** - Core audio and video decoding library
 - **[SDL2 2.30.6](https://www.libsdl.org/)** - Cross-platform multimedia rendering library
 
 ## 🚀 Quick Start
 
-### Environment Setup
-1. Download the required library package from [Releases](https://github.com/jerryyang1208/FFmpeg7-SDL2_Practice/releases)
+### Environment Configuration
+1. Download the required library packages from [Releases](https://github.com/jerryyang1208/FFmpeg7-SDL2_Practice/releases)
 
 2. Extract to the project root directory, ensuring the directory structure is as follows:
 <pre>
 ffmpeg+SDL2/
 ├── .vscode/                      # VS Code configuration files
 │   ├── c_cpp_properties.json     # C/C++ plugin configuration
-│   ├── launch.json               # Debugging configuration
+│   ├── launch.json               # Debug configuration
 │   ├── settings.json             # Editor settings
 │   └── tasks.json                # Build task configuration
 │
@@ -40,16 +40,12 @@ ffmpeg+SDL2/
 ├── SDL2-2.30.6/                  # SDL2 library folder
 │
 ├── .gitignore                    # Git ignore configuration
-├── README.md                     # Project documentation (Chinese)
-├── README_en.md                  # Project documentation (English)
+├── README.md                     # Project documentation
 │
-├── AudioPlayer.cpp               # Audio player source code
-├── PCM_AudioPlayer.cpp           # PCM audio player source code
-├── SDL_Pics.cpp                  # SDL graphics drawing source code
-├── VideoPlayer.cpp               # Video player source code
-├── Audio_Video_Player.cpp        # Multi-threaded audio/video synchronized player source code
-├── Audio_Video_Player(WSL).cpp   # WSL version audio/video player source code
-├── HW_Audio_Video_Player.cpp     # Hardware-accelerated audio/video player source code
+├── common.h                      # Common header file (shared data structures and function declarations)
+├── common.cpp                    # Common implementation file (shared functionality implementation)
+├── Audio_Video_Player.cpp        # Software decoding version of audio and video player source code
+├── HW_Audio_Video_Player.cpp     # Hardware acceleration version of audio and video player source code
 │
 ├── avcodec-61.dll                # FFmpeg codec library
 ├── avdevice-61.dll               # FFmpeg device library
@@ -61,254 +57,181 @@ ffmpeg+SDL2/
 └── SDL2.dll                      # SDL2 dynamic link library
 </pre>
 
-3. Ensure DLL files are in the same directory as the executable or in the system PATH. These dynamic link library files are required at runtime.
+3. Ensure the DLL files are in the same directory as the executable or in the system PATH, as these dynamic link libraries are required for runtime
 
 ### Compilation Environment
-- **Compiler**: MSVC (Visual Studio) or MinGW (VS Code). The Linux version is compiled using GCC/G++ (WSL VS Code)
+- **Compiler**: MSVC (Visual Studio) or MinGW (VS Code), Linux version will be compiled with GCC/G++ (WSL VS Code) in future updates
 - **Standard**: C++11/14
 - **Include Directories**: Need to add FFmpeg and SDL2 include paths
 - **Library Directories**: Need to add FFmpeg and SDL2 lib paths
-- **Link Libraries**: 
+- **Linked Libraries**: 
 - FFmpeg: avformat, avcodec, avutil, swresample, swscale
 - SDL2: SDL2
-- Windows: comdlg32 (for file dialog after running to select local files). The Linux version uses POSIX API (unistd)
+- Windows: comdlg32 (for file dialog when running, select local files), Linux version will use POSIX API (unistd) in future updates
 
 ## 📁 Project File Description
 
-### 1. 🎵 AudioPlayer.cpp - Universal Audio Player
-**Function**: Supports playback of various audio format files (such as MP3, FLAC, Opus, WAV, M4A, OGG, AAC, etc.)
+### 1. 📦 common.h - Common Header File
+**Function**: Defines shared data structures, constants, and function declarations, providing a unified interface for both software and hardware versions.
 
-**Core Features**:
-- Supports Chinese path file selection
-- Automatic audio resampling (unified output to 16-bit stereo)
-- Real-time playback progress display
-- Displays audio metadata (title, artist, album, sample rate, etc.)
+**Core Content**:
+- **Thread-safe Queue**: `SafeQueue` template class, implementing thread-safe data transfer
+- **Video Frame Structure**: `VideoFrame` struct, used to store video frame data and timestamps
+- **Common Constants**: Configuration parameters such as queue size and synchronization thresholds
+- **Global Variable Declarations**: FFmpeg core contexts, SDL devices, threads, queues, etc.
+- **Helper Function Declarations**: Common functions like file selection and string conversion
 
-**Usage**:
-1. Run the program, a file selection dialog appears
-2. Select an audio file
-3. Automatically plays and displays progress bar
-4. Automatically exits after playback
-
-**Technical Highlights**:
-- Uses FFmpeg to decode various audio formats
-- Uses Swresample for audio format conversion
-- Uses SDL for audio playback via queue mode
+**Key Features**:
+- Provides a unified queue implementation to ensure thread safety
+- Defines standardized data structures to simplify code reuse
+- Centralizes configuration parameters for easy unified adjustment
 
 ---
 
-### 2. 🎛️ PCM_AudioPlayer.cpp - Raw PCM Audio Player
-**Function**: Plays raw PCM audio files (44.1kHz, 16-bit, stereo)
+### 2. 🔧 common.cpp - Common Implementation File
+**Function**: Implements helper functions declared in common.h, providing general functionality support for the players.
 
-**Core Features**:
-- Directly reads PCM file into memory
-- Uses SDL queue for audio data
-- Simple file selection interface
+**Core Content**:
+- **File Selection**: `SelectFileDialog` function, implementing graphical file selection interface
+- **String Conversion**: `AnsiToUtf8` function, handling Chinese path encoding issues
+- **Global Variable Definitions**: Initializing common global variables
 
-**Usage**:
-1. Run the program, select a .pcm file
-2. Program automatically plays (Note: PCM file must be 44.1kHz / 16-bit / stereo format)
-3. Automatically exits after playback
-
-**Notes**:
-- ⚠️ Only supports fixed parameters: 44.1kHz sample rate, 16-bit depth, stereo
-- If the PCM file parameters don't match, playback speed may be abnormal or noise may occur
+**Technical Points**:
+- Uses Windows API to implement file selection dialog
+- Handles ANSI to UTF-8 encoding conversion to ensure Chinese paths work correctly
+- Provides unified helper functions to reduce code duplication
 
 ---
 
-### 3. 🖼️ SDL_Pics.cpp - SDL2 Graphics Drawing Example
-**Function**: Demonstrates SDL2 basic drawing functions
+### 3. 🎯 Audio_Video_Player.cpp - Software Decoding Version
+**Function**: Multi-threaded audio and video synchronous player based on software decoding, supporting audio and video file playback, no window for pure audio files.
 
 **Core Features**:
-- Creates borderless window
-- Draws filled rectangles (large blue rectangle, small cyan rectangle)
-- Draws white triangle lines
-- Red background
+- ✅ **Multi-threaded Architecture**: Demuxing thread, audio decoding thread, and video decoding thread run independently
+- ✅ **Thread-safe Queue**: Uses `SafeQueue` to implement lock-free data transfer
+- ✅ **Intelligent Stream Recognition**: Automatically excludes cover image streams, no video window pops up for pure audio playback
+- ✅ **Precise Synchronization**: Uses audio clock as the baseline, dynamically adjusts video rendering timing
+- ✅ **Real-time Progress Display**: Shows current playback progress in the console
+- ✅ **Graceful Exit**: Supports window close exit, automatically waits for audio playback to complete
+- ✅ **Filter Support**: Rotates and scales videos of different resolutions and orientations
 
-**Usage**:
-1. Run the program, displays SDL graphics window
-2. Window automatically closes after 5 seconds
+**Data Flow Architecture**:
+File → [Demuxing Thread] → Audio Packet Queue → [Audio Decoding Thread] → SDL_QueueAudio → Audio Device
+                   → Video Packet Queue → [Video Decoding Thread] → Video Frame Queue → [Main Thread Rendering] → Window
 
-**Display Effect**:
-- Background: Red
-- Large blue rectangle: Position (50,50), size 300x200
-- White triangle: Closed line formed by four points
-- Small cyan rectangle: Position (400,300), size 100x100
+**Technical Points**:
+- Uses FFmpeg 7.0 API for decoding
+- Audio resampling to S16 stereo, video unified conversion to YUV420P
+- Audio clock synchronization to ensure audio-video synchronization
+- Queue mode audio output, simple and reliable implementation
 
 ---
 
-### 4. 🎬 VideoPlayer.cpp - Video Player
-**Function**: Plays various video format files (MP4, MKV, AVI, FLV, MOV, etc.)
+### 4. ⚡ HW_Audio_Video_Player.cpp - Hardware Acceleration Version
+**Function**: Based on the software version, adds DXVA2 hardware decoding support, significantly reducing CPU usage, suitable for smooth playback of 4K/8K high-bitrate videos.
 
 **Core Features**:
-- Supports Chinese path file selection
-- Automatic audio/video synchronization
-- Adjustable window size (image auto-stretches)
-- YUV420P format rendering (ensures compatibility)
+- ✅ **DXVA2 Hardware Acceleration**: Automatically detects and enables DXVA2, offloading decoding tasks to GPU
+- ✅ **Multi-threaded Architecture**: Inherits the efficient multi-threaded design of the software version
+- ✅ **Intelligent Memory Management**: Uses bounded queues and backpressure mechanism to prevent memory explosion
+- ✅ **Automatic Fallback**: If hardware acceleration is unavailable, automatically switches to software decoding
+- ✅ **Precise Audio-Video Synchronization**: Continues to use audio clock as the main synchronization strategy
+- ✅ **Filter Support**: Rotates and scales videos of different resolutions and orientations
 
-**Usage**:
-1. Run the program, select a video file
-2. Video automatically plays
-3. Automatically exits when window is closed or playback finishes
+**Technical Points**:
+- **Hardware Acceleration Initialization**: Creates DXVA2 hardware device context and associates it with the decoder
+- **Hardware Frame Download**: Downloads frames from GPU to system memory, supports YUV420P and NV12 formats
+- **Memory Optimization**: Reuses download frames to reduce memory allocation
+- **Performance Optimization**: Uses SWS_FAST_BILINEAR algorithm to improve scaling speed
 
-**Technical Highlights**:
-- Uses FFmpeg to decode video frames
-- Uses Swscale to convert various pixel formats to YUV420P
-- Uses SDL texture for video rendering
-- PTS (Presentation Time Stamp) based audio/video synchronization
+**Performance Comparison** (tested with 4K 60fps 70Mbps high-pressure video):
+- Software decoding version: CPU usage ≈ 30%, memory ≈ 350MB
+- Hardware acceleration version: CPU usage ≈ 7%, memory ≈ 400MB (increase of about 50MB for download frames, but achieves 4x CPU performance improvement)
 
----
-
-### 5. 🎯 Audio_Video_Player.cpp - Multi-threaded Audio/Video Synchronized Player
-**Function**: Professional-grade audio/video player based on **multi-threaded decoding + queue buffering + audio-master synchronization**, supporting audio/video file playback. Pure audio files play without window.
-
-**Core Features**:
-- ✅ **Multi-threaded Architecture**: Demux thread, audio decoding thread, and video decoding thread run independently for efficient CPU utilization
-- ✅ **Thread-safe Queues**: Custom `SafeQueue` template for lock-free data transfer
-- ✅ **Intelligent Stream Recognition**: Automatically excludes cover image streams (e.g., MP3 album art); no video window for pure audio files
-- ✅ **Precise Synchronization**: Uses audio clock as reference, dynamically adjusts video rendering timing (supports early waiting, late dropping)
-- ✅ **Real-time Progress Display**: Shows current playback progress in console (min:sec format)
-- ✅ **Graceful Exit**: Supports exit by window closing, automatically waits for audio playback to finish before ending
-- ✅ **Queue Mode Audio Output**: No callback needed; directly pushes data with `SDL_QueueAudio` for simple and reliable operation
-
-**Data Flow Architecture**: 
-File → [Demux Thread] → Audio Packet Queue → [Audio Decode Thread] → SDL_QueueAudio → Audio Device
-                   → Video Packet Queue → [Video Decode Thread] → Video Frame Queue → [Main Thread Render] → Window
-
-**Technical Highlights**:
-- Uses FFmpeg 7.0 API (`avcodec_send_packet` / `avcodec_receive_frame`)
-- Audio resampled to S16 stereo, video uniformly converted to YUV420P
-- Audio clock calculation: `(total pushed samples - samples remaining in SDL internal queue) / sample rate`
-- Sync threshold: Wait if video >100ms ahead, drop if >300ms behind
-- Perfectly handles audio files with embedded cover art (e.g., MP3, FLAC) without black window
-- Integrates filter library to support rotation and scaling adaptation for videos of different resolutions and orientations
-
-**Usage**:
-1. Run the program, select media file (audio or video)
-2. For pure audio files, no window appears; console shows playback progress
-3. For video files, window appears and starts playback with synchronized audio
-4. Automatically exits after playback, or click window close button to exit
-
-**Dual Version**: Recently updated WSL version of audio/video synchronized player with all features above. Cross-platform adaptation requires only the following modifications:
-1. Remove Windows version headers `<windows.h>` and `<commdlg.h>`, add WSL-required headers `<sys/stat.h>`, `<unistd.h>`, and `<limits.h>`
-2. Windows version uses graphical file dialog with ANSI to UTF-8 conversion; WSL version maintains command-line interactive input, with default UTF-8 requiring no conversion
-3. WSL version adds explicit constructor to `struct VideoFrame` to resolve potential GCC strict compilation issues
-4. Core FFmpeg logic 100% reusable, platform-independent; UI layer fully compatible via SDL2 graphics rendering; uses POSIX standard APIs to replace Windows-specific APIs
-5. Unified CMake management, automatic dependency detection via pkg-config, fully demonstrating cross-platform capabilities of FFmpeg + SDL2 combination
-
----
-
-### 6. ⚡ HW_Audio_Video_Player.cpp - Hardware-Accelerated Multi-threaded Audio/Video Synchronized Player
-**Function**: Based on **Audio_Video_Player.cpp**, adds **DXVA2 hardware decoding support**, significantly reducing CPU usage, especially suitable for smooth playback of 4K/8K high-bitrate videos. Automatically falls back to software decoding when hardware acceleration is unavailable.
-
-**Core Features**:
-- ✅ **DXVA2 Hardware Acceleration**: Automatically detects and enables DXVA2, offloading decoding tasks to GPU, significantly reducing CPU load
-- ✅ **Multi-threaded Architecture**: Inherits efficient multi-threaded design from original (demux, audio decode, video decode independent threads)
-- ✅ **Bounded Queues with Backpressure**: All queues have maximum capacity (audio packets 100, video packets 50, video frames 10) to prevent memory explosion
-- ✅ **Intelligent Memory Management**: Fixed memory leaks in original version (unreleased AVPacket and AVFrame), stable memory usage during long-term operation
-- ✅ **Automatic Fallback**: If hardware acceleration initialization fails (e.g., graphics card doesn't support DXVA2), automatically switches to software decoding, ensuring usability
-- ✅ **Precise Audio/Video Synchronization**: Maintains audio-master sync strategy, supports early waiting and late dropping
-- ✅ **Pure Audio Support**: Also works for pure audio files, no window appears
-
-**Data Flow Architecture** (identical to software version):
-File → [Demux Thread] → Audio Packet Queue → [Audio Decode Thread] → SDL_QueueAudio → Audio Device
-                   → Video Packet Queue → [Video Decode Thread (Hardware Accelerated)] → Video Frame Queue → [Main Thread Render] → Window
-
-![Hardware Acceleration Process](Pictures/HW_accelerate.png)
-
-**Technical Highlights**:
-- **Hardware Acceleration Initialization**: Iterates through decoder's `AVCodecHWConfig`, selects DXVA2 device type, creates hardware device context and associates with decoder
-- **Hardware Frame Download**: Uses `av_hwframe_transfer_data()` to download frames from GPU to system memory; prioritizes downloading as YUV420P; if fails, attempts NV12 and converts
-- **Persistent Download Frames**: Pre-allocates two download frames (YUV420P and NV12) to reduce frequent allocation, reused in video decoding thread
-- **Memory Optimization**: Uses bounded queues with backpressure mechanism; producers automatically block when queue is full to prevent infinite accumulation; all `AVPacket` and `AVFrame` properly released
-- **Compatibility**: Output remains YUV420P, consistent with SDL texture format, requiring no rendering code modifications
-
-![Hardware Decoding Process](Pictures/Decode.png)
-
-**Performance Comparison** (tested with 4K 60fps 70Mbps high-stress video):
-- Software decoding version: CPU usage ≈ 30%, memory ≈ 650MB
-- Hardware acceleration version: CPU usage ≈ 7%, memory ≈ 700MB (approximately 50MB increase for download frames, but gains 4x CPU performance improvement)
-
-**Usage**:
-1. Run the program, select media file (audio or video)
-2. Program automatically detects hardware acceleration capability; if supported, enables DXVA2, console outputs `Hardware acceleration (DXVA2) enabled.`
-3. If hardware acceleration unavailable, automatically uses software decoding, outputs prompt and continues decoding/playback
-4. Playback experience identical to software version, but with significantly reduced CPU usage, capable of handling higher-load video playback tasks
-
-**Dual Version**: The latest version of **HW_Audio_Video_Player.cpp** adds filter library support for rotation and scaling adaptation for videos of different resolutions and orientations. Additionally, it reduces thread count to improve single-thread efficiency, and optimizes memory management and fallback mechanisms. Memory usage when playing the same high-stress video is only half of the previous version!
+**Usage Method**:
+1. **Compilation**: Open the project in VS Code, select the file to compile (Audio_Video_Player.cpp or HW_Audio_Video_Player.cpp), then run the build task
+2. **Running**: After compilation is complete, run the generated executable file
+3. **File Selection**: The program will pop up a file selection dialog, select the media file to play
+4. **Playback Control**:
+   - Video file: A playback window will pop up, displaying the video frame
+   - Audio file: Playback progress will be displayed in the console, no window pops up
+5. **Exit**: Automatically exit after playback is complete, or click the window close button to exit
 
 ---
 
 ## ⚙️ VS Code Configuration Description
 
-The project includes the `.vscode` configuration folder:
-- `c_cpp_properties.json` - C/C++ plugin configuration (includes library paths)
-- `launch.json` - Debugging configuration
+The project includes a `.vscode` configuration folder:
+- `c_cpp_properties.json` - C/C++ plugin configuration (including library paths)
+- `launch.json` - Debug configuration
 - `settings.json` - Editor settings
 - `tasks.json` - Build task configuration
 
-## 🔧 Frequently Asked Questions
+## 🔧 Common Issues
 
-### Q1: Can't find FFmpeg/SDL2 headers during compilation
-**A**: Check if include paths in `.vscode/c_cpp_properties.json` are correct
+### Q1: Cannot find FFmpeg/SDL2 header files during compilation
+**A**: Check if the include paths in `.vscode/c_cpp_properties.json` are correct
 
-### Q2: Missing DLL error at runtime
-**A**: Ensure all DLL files are in the same directory as the executable or added to system PATH
+### Q2: Missing DLL error during runtime
+**A**: Ensure all DLL files are in the same directory as the executable, or have been added to the system PATH
 
-### Q3: PCM playback speed incorrect or noise
-**A**: PCM_AudioPlayer.cpp only supports 44.1kHz / 16-bit / stereo format; check PCM file parameters
+### Q3: PCM playback speed is incorrect or has noise
+**A**: PCM_AudioPlayer.cpp only supports 44.1kHz / 16-bit / stereo format, please check PCM file parameters
 
-### Q4: Audio file won't play
-**A**: AudioPlayer.cpp supports mainstream formats, but some specially encoded files may require additional codecs
+### Q4: Audio files cannot be played
+**A**: AudioPlayer.cpp supports mainstream formats, but some specially encoded files may require additional decoders
 
 ### Q5: High CPU usage when running multi-threaded player?
-**A**: Normal phenomenon; multi-threaded decoding fully utilizes CPU. `SDL_Delay(10)` already added in main loop to prevent idle spinning; if still too high, increase delay appropriately
+**A**: Normal phenomenon, multi-threaded decoding will fully utilize CPU. `SDL_Delay(10)` has been added in the main loop to avoid idling, if it's still too high, you can increase the delay appropriately
 
 ### Q6: Hardware acceleration version uses more memory than software version?
-**A**: Hardware acceleration version pre-allocates two download frames (about 20MB) for retrieving data from GPU, which is normal. Compared to software version, hardware acceleration version reduces CPU usage by over 70%, making it worthwhile for high-resolution videos.
+**A**: The hardware acceleration version pre-allocates two download frames (about 20MB) for getting data from GPU, which is normal. Compared to the software version, the hardware acceleration version can reduce CPU usage by more than 70%, which is worth it for high-resolution videos.
 
-### Q7: What if hardware acceleration fails to enable?
-**A**: Program automatically falls back to software decoding without affecting playback. Check if graphics card supports DXVA2, or update graphics drivers.
+### Q7: What to do if hardware acceleration fails to enable?
+**A**: The program will automatically fall back to software decoding, which does not affect playback. You can check if your graphics card supports DXVA2, or update your graphics card driver.
 
 ## 📝 Update Log
 
-### v1.0.0 (2026.2.28)
-- Implemented four independent functional modules
-- Added Chinese path file selection support
-- Added detailed metadata display
-
-### v1.1.0 (2026.3.3)
-- **New**: `Audio_Video_Player.cpp` multi-threaded audio/video synchronized player
-- **Optimization**: Improved stream recognition logic; pure audio files no longer pop up video window
-- **Documentation**: Updated README with detailed multi-threaded player architecture
-
-### v1.2.0 (2026.3.6)
-- **New**: `HW_Audio_Video_Player.cpp` hardware-accelerated multi-threaded audio/video synchronized player (DXVA2 support)
-- **Optimization**: Software/hardware version code with bounded queues for all queues, introducing backpressure mechanism, completely solving memory inflation issues
-- **Fix**: Memory leaks in demux thread and decode threads (unreleased AVPacket and AVFrame)
-- **Performance**: Hardware acceleration version reduces CPU usage by about 70% when playing 4K high-bitrate videos
-- **Documentation**: Added detailed description and performance comparison data for hardware acceleration version
-
-### v1.3.0 (2026.3.8)
-- **New**: `Audio_Video_Player.cpp` and `HW_Audio_Video_Player.cpp` both integrate FFmpeg filter library. Retained original hardware-accelerated player code without filter library as `HW.cpp` for future differential learning and performance comparison.
-- **Optimization**: Both software/hardware version player codes add automatic rotation and scaling adaptation for mobile phone portrait videos through filters
-- **Performance**: `HW_Audio_Video_Player.cpp` memory usage reduced from 800MB to 350MB when playing 4K high-bitrate videos
-- **Documentation**: Added Zhihu blog article https://zhuanlan.zhihu.com/p/2013200050549958415 detailing hardware acceleration principles, processes, and code applications, as well as video rotation and scaling adaptation after filter library integration
+### v2.0.0 (2026.4.7)
+- **Refactoring**: Project architecture refactoring, extracting common code into common.h and common.cpp
+- **Optimization**: Hardware acceleration version uses SWS_FAST_BILINEAR algorithm to improve scaling speed
+- **Optimization**: Further memory management optimization, reducing memory usage to 350MB when playing 4K high-bitrate videos
+- **Fix**: Configuration file optimization, unifying path separators to Windows style
+- **Documentation**: Update README.md, detailing the refactored project structure and functionality
 
 ### v1.4.0 (2026.3.13)
-- **New**: Modified and optimized the existing `Audio_Video_Player(WSL).cpp`, added a WSL/Linux platform runnable version. Achieves all functions implemented on Windows platform, and inputs media file paths in WSL via CLI for decoding and playback.
+- **New**: WSL/Linux platform support with `Audio_Video_Player(WSL).cpp`
+- **Optimization**: Cross-platform compatibility, using POSIX standard API instead of Windows-specific API
 
-Future attempts will integrate with live555 and other transmission-related servers to expand the project's practicality and versatility.
+### v1.3.0 (2026.3.8)
+- **New**: FFmpeg filter library support, implementing video rotation and scaling adaptation
+- **Performance**: Hardware acceleration version memory usage reduced from 800MB to 350MB
+
+### v1.2.0 (2026.3.6)
+- **New**: `HW_Audio_Video_Player.cpp` hardware-accelerated multi-threaded audio and video synchronous player
+- **Optimization**: Bounded queues and backpressure mechanism to solve memory explosion problem
+- **Performance**: Hardware acceleration version CPU usage reduced by about 70%
+
+### v1.1.0 (2026.3.3)
+- **New**: `Audio_Video_Player.cpp` multi-threaded audio and video synchronous player
+- **Optimization**: Improved stream recognition logic, no video window pops up for pure audio files
+
+### v1.0.0 (2026.2.28)
+- Implemented four independent functional modules
+- Supported Chinese path file selection
+- Added detailed metadata display
+
+Future plans include linking with live555 and other transmission-related servers to expand the project's practicality and versatility.
 
 ## 📄 License
 
-This project is for learning and communication purposes only. FFmpeg and SDL2 follow their respective open-source licenses.
+This project is for learning and exchange purposes only. FFmpeg and SDL2 follow their respective open-source licenses.
 
 ## 👤 Author
 
 - GitHub: [@jerryyang1208](https://github.com/jerryyang1208)
 
-## ⭐ Acknowledgements
+## ⭐ Acknowledgments
 
 - [FFmpeg](https://ffmpeg.org/) community
 - [SDL](https://www.libsdl.org/) development team
