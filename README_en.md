@@ -195,7 +195,7 @@ The project includes a `.vscode` configuration folder:
 ### v2.0.0 (2026.4.7)
 - **Refactoring**: Project architecture refactoring, extracting common code into common.h and common.cpp
 - **Optimization**: Hardware acceleration version uses SWS_FAST_BILINEAR algorithm to improve scaling speed
-- **Optimization**: Further memory management optimization, reducing memory usage to 350MB when playing 4K high-bitrate videos
+- **Optimization**: Further memory management optimization, reducing memory usage to 550MB when playing 4K high-bitrate videos
 - **Fix**: Configuration file optimization, unifying path separators to Windows style
 - **Documentation**: Update README.md, detailing the refactored project structure and functionality
 
@@ -205,7 +205,7 @@ The project includes a `.vscode` configuration folder:
 
 ### v1.3.0 (2026.3.8)
 - **New**: FFmpeg filter library support, implementing video rotation and scaling adaptation
-- **Performance**: Hardware acceleration version memory usage reduced from 800MB to 350MB
+- **Performance**: Hardware acceleration version memory usage reduced from 800MB to 550MB
 
 ### v1.2.0 (2026.3.6)
 - **New**: `HW_Audio_Video_Player.cpp` hardware-accelerated multi-threaded audio and video synchronous player
